@@ -28,7 +28,19 @@ export async function initializeEngram(): Promise<void> {
     // typeof 兜底：vitest 不注入这两个常量。
     const buildVersion = typeof __ENGRAM_VERSION__ !== 'undefined' ? __ENGRAM_VERSION__ : 'dev';
     const buildStamp = typeof __ENGRAM_BUILD_TIME__ !== 'undefined' ? __ENGRAM_BUILD_TIME__ : 'dev';
-    Logger.info('STBridge', `Engram v${buildVersion} 已加载`, { buildTime: buildStamp });
+    // V1.5.2: 同时给出本地时间。ISO 串（UTC）看着不直观，曾导致「线上跑的是 3 小时前的旧包」
+    // 反复排查；本地时间一眼就能和自己的构建时刻对上。
+    let buildLocal = buildStamp;
+    if (buildStamp !== 'dev') {
+        const d = new Date(buildStamp);
+        if (!Number.isNaN(d.getTime())) {
+            buildLocal = d.toLocaleString('zh-CN', { hour12: false });
+        }
+    }
+    Logger.info('STBridge', `Engram v${buildVersion} 已加载 (构建于 ${buildLocal})`, {
+        buildTime: buildStamp,
+        buildLocal
+    });
 
     Logger.info('STBridge', 'Engram 插件正在初始化...');
 
