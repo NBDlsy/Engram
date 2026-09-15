@@ -42,6 +42,16 @@ Causality: ${kv.causality ?? ''}
 Significance: ${e.significance_score ?? 0}`;
         }).join('\n\n---\n\n');
 
+        // V1.5.2: 数据体检。若库里存在缺 structured_kv 的老事件/导入事件，这里会留痕，
+        // 便于区分"LLM 输出跑偏"与"数据库脏数据"，不用再去翻 Dexie。
+        const brokenCount = events.filter(e => !e.structured_kv && !(e as any).meta).length;
+        if (brokenCount > 0) {
+            Logger.warn('FormatTrimInput', `检测到 ${brokenCount} 条事件缺少 structured_kv，已按空字段兜底`, {
+                ids: events.filter(e => !e.structured_kv && !(e as any).meta).map(e => e.id).slice(0, 10),
+                total: events.length
+            });
+        }
+
         // 将格式化后的文本放入变量
         // V1.2.1: 使用 targetSummaries 存储待精简内容，避免覆盖全局 engramSummaries
         context.input.targetSummaries = formattedText;
