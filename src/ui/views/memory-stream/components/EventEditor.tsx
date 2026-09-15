@@ -6,6 +6,7 @@
  * - 编辑即时反馈到父组件
  */
 import type { EventNode } from '@/data/types/graph';
+import { toList, toNumber, toText } from '@/data/utils/sanitize';
 import { TextField } from '@/ui/components/form/FormComponents';
 import { Divider } from '@/ui/components/layout/Divider';
 import { useResponsive } from '@/ui/hooks/useResponsive';
@@ -75,28 +76,33 @@ function generateSummaryFromKV(kv: Partial<EventNode['structured_kv']> | null | 
     const parts: string[] = [];
 
     // 时间和地点
-    const locationStr = Array.isArray(kv.location) ? kv.location.join(', ') : (kv.location || '');
-    if (kv.time_anchor && locationStr) {
-        parts.push(`【${kv.time_anchor}·${locationStr}】`);
-    } else if (kv.time_anchor) {
-        parts.push(`【${kv.time_anchor}】`);
+    // V1.5.2: 字段可能被写成数字/字符串，直接用模板串会渲染成对象、.join 会抛
+    const locationStr = toList(kv.location).join(', ');
+    const timeStr = toText(kv.time_anchor);
+    if (timeStr && locationStr) {
+        parts.push(`【${timeStr}·${locationStr}】`);
+    } else if (timeStr) {
+        parts.push(`【${timeStr}】`);
     } else if (locationStr) {
         parts.push(`【${locationStr}】`);
     }
 
     // 人物
-    if (Array.isArray(kv.role) && kv.role.length > 0) {
-        parts.push(kv.role.join('、'));
+    const roles = toList(kv.role);
+    if (roles.length > 0) {
+        parts.push(roles.join('、'));
     }
 
     // 事件
-    if (kv.event) {
-        parts.push(kv.event);
+    const eventName = toText(kv.event);
+    if (eventName) {
+        parts.push(eventName);
     }
 
     // 逻辑标签
-    if (Array.isArray(kv.logic) && kv.logic.length > 0) {
-        parts.push(`(${kv.logic.join('/')})`);
+    const logic = toList(kv.logic);
+    if (logic.length > 0) {
+        parts.push(`(${logic.join('/')})`);
     }
 
     return parts.join(' ').trim();
@@ -138,15 +144,14 @@ export const EventEditor = ({
     // 同步事件数据到表单
     useEffect(() => {
         if (event && event.id !== lastEventId) {
-            setSummary(event.summary);
-            setEventType(event.structured_kv?.event || '');
-            setTimeAnchor(event.structured_kv?.time_anchor || '');
-            // V1.0.2: location 现在是数组，显示为逗号分隔
-            const locArray = event.structured_kv?.location || [];
-            setLocation(Array.isArray(locArray) ? locArray.join(', ') : String(locArray || ''));
-            setRoleText(event.structured_kv?.role?.join(', ') || '');
-            setLogicText(event.structured_kv?.logic?.join(', ') || '');
-            setScore(event.significance_score);
+            // V1.5.2: 全部走净化层，避免非字符串字段让编辑器打开即崩
+            setSummary(toText(event.summary));
+            setEventType(toText(event.structured_kv?.event));
+            setTimeAnchor(toText(event.structured_kv?.time_anchor));
+            setLocation(toList(event.structured_kv?.location).join(', '));
+            setRoleText(toList(event.structured_kv?.role).join(', '));
+            setLogicText(toList(event.structured_kv?.logic).join(', '));
+            setScore(toNumber(event.significance_score, 0));
             setIsArchived(Boolean(event.is_archived));
             setIsLocked(Boolean(event.is_locked));
             setIsDirty(false);

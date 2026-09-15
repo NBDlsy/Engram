@@ -6,6 +6,7 @@
  * 文本层级：heading(标题) → foreground(正文) → meta(元数据)
  */
 import type { EventNode } from '@/data/types/graph';
+import { toList, toText } from '@/data/utils/sanitize';
 import { Archive, ChevronRight, Lock, LockOpen, Trash2, Zap } from 'lucide-react';
 import React from 'react';
 
@@ -72,22 +73,23 @@ function EmbeddingBadge({ isEmbedded }: { isEmbedded: boolean }) {
 function MetaLine({ event }: { event: EventNode }) {
     // V1.5.2: 老数据 / 导入事件可能没有 structured_kv，裸读会让整张卡片渲染失败
     const kv = event.structured_kv ?? {} as EventNode['structured_kv'];
-    // 不再合并为一个字符串，而是保留语义信息单独渲染
-    const hasData = kv.time_anchor || kv.location || (kv.role && kv.role.length > 0);
-    if (!hasData) {return null;}
+    // V1.5.2: role / location 可能被写成字符串，`.length > 0` 通过但 `.join` 不存在会直接崩整块视图
+    const roles = toList(kv.role);
+    const locStr = toList(kv.location).join(', ');
+    const timeStr = toText(kv.time_anchor);
 
-    const locStr = Array.isArray(kv.location) ? kv.location.join(', ') : String(kv.location || '');
+    if (!timeStr && !locStr && roles.length === 0) {return null;}
 
     return (
         <div className="flex flex-wrap items-center gap-1.5 text-xs truncate">
-            {kv.time_anchor && (
-                <span className="text-value">({kv.time_anchor})</span>
+            {timeStr && (
+                <span className="text-value">({timeStr})</span>
             )}
             {locStr && (
                 <span className="text-value">@{locStr}</span>
             )}
-            {kv.role && kv.role.length > 0 && (
-                <span className="text-emphasis">[{kv.role.join(', ')}]</span>
+            {roles.length > 0 && (
+                <span className="text-emphasis">[{roles.join(', ')}]</span>
             )}
         </div>
     );
@@ -113,11 +115,14 @@ export const EventCard: React.FC<EventCardProps> = ({
     const score = typeof event.significance_score === 'number' ? event.significance_score : 0;
 
     // 提取纯文本（去掉标题行）
-    const summaryLines = (event.summary ?? '').split('\n');
-    const eventTitle = kv.event || summaryLines[0]?.replace(/:\s*$/, '') || '未知事件';
+    // V1.5.2: summary 可能被写成非字符串，直接 .split 会抛；kv.event 可能是对象，
+    // 直接放进 JSX 会触发 "Objects are not valid as a React child"
+    const summary = toText(event.summary);
+    const summaryLines = summary.split('\n');
+    const eventTitle = toText(kv.event) || summaryLines[0]?.replace(/:\s*$/, '') || '未知事件';
     const summaryText = summaryLines.length > 1
         ? summaryLines.slice(1).join(' ').trim()
-        : (event.summary ?? '');
+        : summary;
 
     // 紧凑模式（移动端）
     if (isCompact) {

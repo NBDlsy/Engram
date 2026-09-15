@@ -63,6 +63,20 @@
 - 内置摘要提示词改用中性客观的用词准则（替换原"情境化用词"，后者会引导模型对亲密剧情做情感润色，
   与"忠实记录"冲突），并新增 `<context_injection>` 段统一注入角色卡/世界书/历史摘要/图谱，
   消除 userPromptTemplate 与系统提示词的重复宏注入
+- 新增脏数据净化层 `src/data/utils/sanitize.ts`，并把净化放到**读取数据库的唯一出口**
+  (`getAllEvents` / `getAllEntities`)。此前是在每个消费点补 `?.`，漏一个就整块白屏——
+  搜索崩溃修完一轮又冒出下一处就是这个原因。现在 `EventNode` / `EntityNode` 出库即保证
+  `summary` 为字符串、`structured_kv` 六字段形状合法、`timestamp` 为有限数字。
+  被判定不可用的记录会写进开发者日志，而不是静默消失
+- UI 侧同步收敛到净化层（防御第二道）:
+  `streamProcessors`（搜索/分组/排序）、`EventCard`、`EntityCard`、`EventEditor`、
+  `EntityEditor`、`SummaryReview`、`RecallDecisionModal`、`RecallLog`。
+  典型修复: `role` 写成字符串时 `kv.role.length > 0` 成立但 `.join` 不存在 → 整块视图崩；
+  `entity.name` 非字符串时 `localeCompare` 不存在 → 按名排序崩
+- 搜索范围扩大: 现在也会匹配 `time_anchor` / `causality` / `location` / `logic`，
+  此前只查 summary / event / role
+- 新增 `test/unit/sanitize.test.ts`（6 例），覆盖数字型 event、字符串型 location、缺失 structured_kv、
+  非对象记录丢弃等场景
 
 
 ## [1.5.1] - 2026-04-22

@@ -1,5 +1,7 @@
+import { Logger } from '@/core/logger';
 import { generateShortUUID } from '@/core/utils';
 import type { EntityNode } from '@/data/types/graph';
+import { sanitizeEntities } from '@/data/utils/sanitize';
 import type { StateCreator } from 'zustand';
 import { getCurrentDb, tryGetCurrentDb } from './coreSlice';
 
@@ -80,7 +82,11 @@ export const createEntitySlice: StateCreator<any, [], [], EntityState> = (set, g
         if (!db) return [];
 
         try {
-            return await db.entities.toArray();
+            const rows = await db.entities.toArray();
+            // V1.5.2: 读取即净化，避免脏实体（name/aliases 非字符串）让整个列表渲染崩溃
+            return sanitizeEntities(rows, (bad, reason) =>
+                Logger.warn('MemoryStore', `读取实体时丢弃不可用记录 (${reason})`, { bad })
+            );
         } catch (e) {
             console.error('[MemoryStore] Failed to get all entities:', e);
             return [];

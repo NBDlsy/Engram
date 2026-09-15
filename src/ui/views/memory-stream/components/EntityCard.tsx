@@ -6,6 +6,7 @@
  * 文本层级：heading(名称) → label(类型) → foreground(描述) → meta(别名)
  */
 import type { EntityNode } from '@/data/types/graph';
+import { toList, toText } from '@/data/utils/sanitize';
 import { Archive, ArchiveRestore, ChevronRight, Lock, LockOpen } from 'lucide-react';
 import React from 'react';
 
@@ -57,6 +58,8 @@ export const EntityCard: React.FC<EntityCardProps> = ({
 }) => {
     const isArchived = entity.is_archived;
     const isLocked = entity.is_locked;
+    // V1.5.2: aliases 可能被写成字符串，`.length > 0` 通过但 `.join` 不存在会崩整块列表
+    const aliasList = toList(entity.aliases);
     // 紧凑模式（移动端）
     if (isCompact) {
         return (
@@ -89,10 +92,10 @@ export const EntityCard: React.FC<EntityCardProps> = ({
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                         <span className="text-xs font-medium text-heading">
-                            {entity.name}
+                            {toText(entity.name)}
                         </span>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full border uppercase ${getEntityTypeColor(entity.type)}`}>
-                            {entity.type}
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full border uppercase ${getEntityTypeColor(toText(entity.type))}`}>
+                            {toText(entity.type)}
                         </span>
                     </div>
                     <p className="text-xs text-meta truncate mt-1">
@@ -160,10 +163,10 @@ export const EntityCard: React.FC<EntityCardProps> = ({
                     />
                 </div>
                 <span className="text-sm font-medium text-heading">
-                    {entity.name}
+                    {toText(entity.name)}
                 </span>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full border uppercase ${getEntityTypeColor(entity.type)}`}>
-                    {entity.type}
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full border uppercase ${getEntityTypeColor(toText(entity.type))}`}>
+                    {toText(entity.type)}
                 </span>
 
                 {/* 锁定按钮 (桌面模式) */}
@@ -205,14 +208,14 @@ export const EntityCard: React.FC<EntityCardProps> = ({
 
             {/* 描述文本 */}
             <p className="text-xs text-meta line-clamp-2 leading-relaxed">
-                {entity.description}
+                {toText(entity.description)}
             </p>
 
             {/* 触发关键词 (原别名) */}
-            {entity.aliases && entity.aliases.length > 0 && (
+            {aliasList.length > 0 && (
                 <div className="mt-auto pt-3 text-[10px] text-meta italic flex items-center gap-1 opacity-80">
                     <span className="shrink-0 font-medium">触发关键词:</span>
-                    <span className="truncate">{entity.aliases.join(', ')}</span>
+                    <span className="truncate">{aliasList.join(', ')}</span>
                 </div>
             )}
         </div>

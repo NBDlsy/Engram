@@ -1,19 +1,14 @@
 import { SettingsManager } from '@/config/settings';
 import type { EntityNode, EventNode } from '@/data/types/graph';
+import { toList, toText } from '@/data/utils/sanitize';
 import type { EntityGroupMode, EntitySortMode, GroupedEvent, SortOrder } from '../hooks/useMemoryStream';
 
-/**
- * V1.5.2: 把任意脏值安全地转成可搜索文本。
- * 库里存在 structured_kv.event / role 被写成数字、数组甚至对象的情况，
- * 直接 .toLowerCase() 会抛 "xxx is not a function"，且只在搜索时才执行，
- * 表现为「一搜索整个视图就崩」。
- */
-const toText = (value: unknown): string => {
-    if (typeof value === 'string') {return value;}
-    if (Array.isArray(value)) {return value.map(toText).join(' ');}
-    if (value === null || value === undefined) {return '';}
-    return String(value);
-};
+/** 脏值安全匹配：任意值都能参与搜索，不会抛 TypeError */
+const matches = (value: unknown, q: string): boolean => toText(value).toLowerCase().includes(q);
+
+/** 列表字段匹配：字符串按整体匹配，数组逐项匹配 */
+const matchesList = (value: unknown, q: string): boolean =>
+    toList(value).some(v => v.toLowerCase().includes(q));
 
 /**
  * 过滤事件列表
@@ -34,11 +29,14 @@ export function filterEvents(
     if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         result = result.filter(e => {
-            const kv = e.structured_kv ?? {};
-            return toText(e.summary).toLowerCase().includes(q) ||
-                toText(kv.event).toLowerCase().includes(q) ||
-                toText(kv.location).toLowerCase().includes(q) ||
-                (Array.isArray(kv.role) && kv.role.some(r => toText(r).toLowerCase().includes(q)));
+            const kv = (e.structured_kv ?? {}) as Record<string, unknown>;
+            return matches(e.summary, q) ||
+                matches(kv.event, q) ||
+                matchesList(kv.location, q) ||
+                matchesList(kv.role, q) ||
+                matches(kv.time_anchor, q) ||
+                matches(kv.causality, q) ||
+                matchesList(kv.logic, q);
         });
     }
 
@@ -125,14 +123,14 @@ export function filterEntities(
 
     const q = searchQuery.toLowerCase();
     return result.filter(e =>
-        toText(e.name).toLowerCase().includes(q) ||
-        (Array.isArray(e.aliases) && e.aliases.some(a => toText(a).toLowerCase().includes(q))) ||
-        toText(e.description).toLowerCase().includes(q)
+        matches(e.name, q) ||
+        matchesList(e.aliases, q) ||
+        matches(e.description, q)
     );
 }
 
 function getTypeLabel(type: string): string {
-    switch ((type || 'unknown').toLowerCase()) {
+    switch (toText(type || 'unknown').toLowerCase()) {
         case 'char': { return '角色';
         }
         case 'loc': { return '地点';
@@ -156,7 +154,8 @@ function sortEntities(entities: EntityNode[], sortMode: EntitySortMode): EntityN
                 return ta - tb;
             }
             case 'name_asc': {
-                return a.name.localeCompare(b.name, 'zh-CN');
+                // V1.5.2: name 可能是数字/数组，直接 localeCompare 会抛
+                return toText(a.name).localeCompare(toText(b.name), 'zh-CN');
             }
             case 'updated_desc':
             default: {

@@ -1,3 +1,4 @@
+import { toList, toText } from '@/data/utils/sanitize';
 import { Plus, X } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 
@@ -128,8 +129,8 @@ export const SummaryReview: React.FC<SummaryReviewProps> = ({ content, data, onC
         return (
             <div className="flex flex-wrap items-center gap-2 mb-3 px-1">
                 {fields.map(f => {
-                    const rawVal = kv[f.key];
-                    const val = Array.isArray(rawVal) ? rawVal.join(', ') : (rawVal || '');
+                    // V1.5.2: 字段可能是数字/字符串，直接给 input 的 value 会渲染异常
+                    const val = toList(kv[f.key]).join(', ') || toText(kv[f.key]);
 
                     return (
                         <div key={f.key} className={`flex items-center gap-1 px-1.5 py-0.5 rounded border ${f.color} transition-all focus-within:ring-1 focus-within:ring-offset-0 focus-within:ring-current`}>
@@ -157,7 +158,8 @@ export const SummaryReview: React.FC<SummaryReviewProps> = ({ content, data, onC
             <div className="space-y-4 pr-2 pb-4">
                 {events.map((evt, idx) => {
                     const isObject = typeof evt === 'object' && evt !== null;
-                    const displayTitle = isObject ? (evt.structured_kv?.event || evt.meta?.event || `Event ${idx + 1}`) : `Event ${idx + 1}`;
+                    const rawTitle = isObject ? (evt.structured_kv?.event ?? evt.meta?.event) : null;
+                    const displayTitle = toText(rawTitle) || `Event ${idx + 1}`;
 
                     return (
                         <div key={idx} className="relative group bg-card border border-border/50 rounded-lg p-3 shadow-sm hover:border-primary/40 transition-colors">

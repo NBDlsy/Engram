@@ -1,5 +1,7 @@
 import { generateShortUUID } from '@/core/utils';
 import type { EventNode } from '@/data/types/graph';
+import { sanitizeEvents } from '@/data/utils/sanitize';
+import { Logger } from '@/core/logger';
 import { WorldInfoService } from '@/integrations/tavern';
 import type { StateCreator } from 'zustand';
 import { getCurrentDb, tryGetCurrentDb } from './coreSlice';
@@ -281,7 +283,12 @@ export const createEventSlice: StateCreator<any, [], [], EventState> = (set, get
         if (!db) {return [];}
 
         try {
-            return await db.events.orderBy('timestamp').toArray();
+            const rows = await db.events.orderBy('timestamp').toArray();
+            // V1.5.2: 读取即净化。库里存在 event 写成数字、role 写成字符串等脏数据，
+            // 直接交给 UI 会在搜索/渲染时抛 TypeError 导致整块白屏。
+            return sanitizeEvents(rows, (bad, reason) =>
+                Logger.warn('MemoryStore', `读取事件时丢弃不可用记录 (${reason})`, { bad })
+            );
         } catch (error) {
             console.error('[MemoryStore] Failed to get all events:', error);
             return [];
