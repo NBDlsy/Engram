@@ -173,6 +173,29 @@ describe('TrimmerWorkflow 集成: LLM 输出不合规时不崩溃', () => {
         expect(result?.newEvent.summary).toBe('纯文本摘要');
     });
 
+    it('V1.5.2: 模型忘了套 {"events": [...]} 外壳时仍能完成精简', async () => {
+        const db = getDbForChat(chatId);
+        for (const e of [mkEvent(1), mkEvent(2), mkEvent(3)]) {
+            await db.events.put(e);
+        }
+
+        // 直接吐事件对象，没有 events 包裹层 —— 此前会报 "ApplyTrim: 无有效的精简结果"
+        (llmAdapter.generate as any).mockResolvedValue({
+            success: true,
+            content: JSON.stringify({
+                meta: { event: '无外壳合并', location: ['王城'], time_anchor: '太阳历1024年' },
+                significance_score: 0.7,
+                summary: '没有外壳的摘要'
+            })
+        });
+
+        const result = await eventTrimmer.trim(true);
+
+        expect(result).not.toBeNull();
+        expect(result?.newEvent.summary).toBe('没有外壳的摘要');
+        expect(result?.newEvent.structured_kv.event).toBe('无外壳合并');
+    });
+
     it('待合并事件缺少 structured_kv 时仍能完成精简', async () => {
         const db = getDbForChat(chatId);
         for (const e of [mkLegacyEvent(1), mkLegacyEvent(2), mkLegacyEvent(3)]) {

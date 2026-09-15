@@ -45,7 +45,11 @@ export class ParseJson implements IStep {
         // 防御性校验：如果解析出的对象包含 events 字段，确保它是数组
         if (parsed.events !== undefined && !Array.isArray(parsed.events)) {
             Logger.warn('ParseJson', 'events 字段不是数组，尝试修正', { type: typeof parsed.events });
-            parsed.events = [];
+            // V1.5.2: 单个对象误写成 {"events": {...}} 时包成数组保留，
+            // 此前一律清空为 []，会让下游 ApplyTrim 直接报"无有效的精简结果"
+            parsed.events = (parsed.events !== null && typeof parsed.events === 'object')
+                ? [parsed.events]
+                : [];
         }
 
         context.parsedData = parsed;

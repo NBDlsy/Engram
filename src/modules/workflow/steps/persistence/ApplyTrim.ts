@@ -9,6 +9,16 @@ import type { JobContext } from '../../core/JobContext';
 import type { IStep } from '../../core/Step';
 import { normalizeTrimResponse } from './trimNormalizer';
 
+/** 截断快照，便于在日志里直接看出 LLM 究竟返回了什么形状 */
+const snapshot = (value: unknown, max = 500): string => {
+    try {
+        const text = JSON.stringify(value);
+        return typeof text === 'string' && text.length > max ? `${text.slice(0, max)}…` : (text ?? String(value));
+    } catch {
+        return String(value);
+    }
+};
+
 export class ApplyTrim implements IStep {
     name = 'ApplyTrim';
 
@@ -28,12 +38,27 @@ export class ApplyTrim implements IStep {
         // V1.2.2: 优先从 context.parsedData 读取，对齐 ParseJson 逻辑
         const parsed = context.parsedData || context.output;
 
-        if (!parsed || !parsed.events || parsed.events.length === 0) {
+        // V1.5.2: 宽容提取事件列表。模型常见的跑偏形态:
+        //   1. 直接吐一个事件对象，忘了套 {"events": [...]} 外壳
+        //   2. 顶层就是数组 (RobustJsonParser 通常已封装，这里兜底)
+        const rawEvents: unknown[] = Array.isArray(parsed?.events)
+            ? parsed.events
+            : Array.isArray(parsed)
+                ? parsed
+                : (parsed && typeof parsed === 'object' && ('summary' in parsed || 'meta' in parsed))
+                    ? [parsed]
+                    : [];
+
+        if (rawEvents.length === 0) {
+            Logger.error('ApplyTrim', '精简结果不可用，原始输出快照', {
+                keys: parsed && typeof parsed === 'object' ? Object.keys(parsed) : typeof parsed,
+                raw: snapshot(parsed)
+            });
             throw new Error('ApplyTrim: 无有效的精简结果');
         }
 
         // V1.5.2: 归一化 LLM 输出，兼容 meta 缺失 / 平铺字段 / 字符串元素
-        const normalized = normalizeTrimResponse(parsed, eventsToMerge);
+        const normalized = normalizeTrimResponse({ events: rawEvents }, eventsToMerge);
 
         // 1. 保存新的合并事件
         const newEvent = await store.saveEvent({
