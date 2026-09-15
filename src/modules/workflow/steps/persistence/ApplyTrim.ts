@@ -71,8 +71,21 @@ export class ApplyTrim implements IStep {
                         : [];
 
         if (rawEvents.length === 0) {
+            const keys = parsed && typeof parsed === 'object' ? Object.keys(parsed) : typeof parsed;
+
+            // V1.5.2: 最常见的一种「不是数据问题、是模板串了」——模型吐了召回格式。
+            // 此时重试也不会变好，直接把原因说清楚，省得误判成脏数据。
+            if (Array.isArray(parsed?.recalls)) {
+                Logger.error('ApplyTrim', '精简结果不可用：模型返回的是召回格式(recalls)，说明精简模板被换成了召回模板', {
+                    keys,
+                    raw: snapshot(parsed),
+                    hint: '请在「API 预设 → 提示词模板」把「记忆精简」重置为默认'
+                });
+                throw new Error('ApplyTrim: 无有效的精简结果（模型返回召回格式，请检查精简模板）');
+            }
+
             Logger.error('ApplyTrim', '精简结果不可用，原始输出快照', {
-                keys: parsed && typeof parsed === 'object' ? Object.keys(parsed) : typeof parsed,
+                keys,
                 raw: snapshot(parsed)
             });
             throw new Error('ApplyTrim: 无有效的精简结果');

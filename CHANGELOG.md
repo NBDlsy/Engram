@@ -85,6 +85,17 @@
   （正文 summary→description→content→text，时间 time_anchor→date→datetime→time_range，
   主题 event→title→topic），并去掉模型爱挂在主题后面的括号解释（否则会变成超长卡片标题）。
   `trim.yaml` 增加「字段名禁令」，明确 `date` / `description` 等写法属违约
+- 修复「精简却产出召回格式」: 模型返回 `{"recalls":[{id,date,score,reason}]}`，
+  现象是 `ApplyTrim: 无有效的精简结果`，看起来像脏数据，实则是**设置里 id=builtin_trim 的模板
+  被换成了召回模板的内容**（用户模板按 id 覆盖内置，BuildPrompt 无法分辨）。
+  现在在**发请求之前**做契约守卫：精简模板若要求输出 recalls 而不含 trim 契约，
+  自动回退内置版本并打 ERROR 提示去重置；`ApplyTrim` 命中 recalls 时报错文案直接点明原因。
+  `BuildPrompt` 另加一条 debug 日志，记录实际解析到的模板 id / 名称 / 是否内置，便于自查
+- 修复 `TrimmerWorkflow` 分类值写错: `category: 'trimming'` 不在 `PromptCategory` 枚举里
+  （正确值是 `'trim'`），一旦调用方没传 templateId，按分类解析会查不到任何模板
+- 测试: 新增 `test/unit/build-prompt-trim-guard.test.ts`（4 例）；
+  `test/setup.ts` 补最小 `document` 桩，消除 SyncService / StopGeneration 在 node 环境下的
+  无关 unhandled rejection 噪音（此前刷屏，会掩盖真实失败）
 
 
 ## [1.5.1] - 2026-04-22
