@@ -20,11 +20,12 @@ export function filterEvents(
 
     if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        result = result.filter(e =>
-            e.summary.toLowerCase().includes(q) ||
-            e.structured_kv.event?.toLowerCase().includes(q) ||
-            e.structured_kv.role?.some(r => r.toLowerCase().includes(q))
-        );
+        result = result.filter(e => {
+            const kv = e.structured_kv ?? {};
+            return (e.summary ?? '').toLowerCase().includes(q) ||
+                kv.event?.toLowerCase().includes(q) ||
+                kv.role?.some(r => r.toLowerCase().includes(q));
+        });
     }
 
     if (showActiveOnly) {

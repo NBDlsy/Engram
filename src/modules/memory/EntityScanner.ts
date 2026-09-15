@@ -88,9 +88,12 @@ export function scanEntities(text: string, entities: EntityNode[]): EntityNode[]
 export function matchEvent(text: string, event: EventNode): boolean {
     if (!text || !event) {return false;}
 
+    // V1.5.2: 兼容缺 structured_kv 的老事件，避免 matchEvent 整条扫描链路抛错
+    const kv = event.structured_kv ?? (event as any).meta ?? {};
+
     // 扫描角色
-    if (Array.isArray(event.structured_kv.role)) {
-        for (const role of event.structured_kv.role) {
+    if (Array.isArray(kv.role)) {
+        for (const role of kv.role) {
             if (matchKey(text, role)) {
                 return true;
             }
@@ -98,8 +101,8 @@ export function matchEvent(text: string, event: EventNode): boolean {
     }
 
     // 扫描地点
-    if (Array.isArray(event.structured_kv.location)) {
-        for (const loc of event.structured_kv.location) {
+    if (Array.isArray(kv.location)) {
+        for (const loc of kv.location) {
             if (matchKey(text, loc)) {
                 return true;
             }

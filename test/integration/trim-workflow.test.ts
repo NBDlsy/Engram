@@ -35,6 +35,13 @@ const mkEvent = (i: number): EventNode =>
         timestamp: 1000 + i
     }) as unknown as EventNode;
 
+/** 老数据 / 外部导入事件：没有 structured_kv，历史上会抛 reading 'location' */
+const mkLegacyEvent = (i: number): EventNode => {
+    const e = { ...mkEvent(i), id: `evt_legacy_${i}` } as any;
+    delete e.structured_kv;
+    return e as EventNode;
+};
+
 describe('TrimmerWorkflow 集成: LLM 输出不合规时不崩溃', () => {
     const chatId = 'test_chat_trim';
 
@@ -127,5 +134,22 @@ describe('TrimmerWorkflow 集成: LLM 输出不合规时不崩溃', () => {
 
         expect(result).not.toBeNull();
         expect(result?.newEvent.summary).toBe('纯文本摘要');
+    });
+
+    it('待合并事件缺少 structured_kv 时仍能完成精简', async () => {
+        const db = getDbForChat(chatId);
+        for (const e of [mkLegacyEvent(1), mkLegacyEvent(2), mkLegacyEvent(3)]) {
+            await db.events.put(e);
+        }
+
+        (llmAdapter.generate as any).mockResolvedValue({
+            success: true,
+            content: '{"events": [{"summary": "无 kv 兜底摘要"}]}'
+        });
+
+        const result = await eventTrimmer.trim(true);
+
+        expect(result).not.toBeNull();
+        expect(result?.newEvent.summary).toBe('无 kv 兜底摘要');
     });
 });
