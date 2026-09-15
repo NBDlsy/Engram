@@ -144,6 +144,45 @@ describe('normalizeTrimResponse', () => {
 
         expect(result.summary).toBe('第一条摘要\n\n第二条摘要');
     });
+
+    it('回归: 模型用契约外字段名 (date/description) 时仍能提取内容', () => {
+        // 线上真实输出: {"event": "...", "date": "...", "description": "...", "role":..., "location":...}
+        // 既无 events 外壳也无 meta / summary，旧逻辑会判定"无有效的精简结果"并抛错
+        const result = normalizeTrimResponse(
+            {
+                events: [
+                    {
+                        date: '2021-01-16 08:06:00 - 10:23:00',
+                        description: '在夸赞念念的口交技巧后，User追问其私密欲望……',
+                        event: '晨间对话 (源于念念的主动邀欢和坦白，引发了一场持续的身心征服与确认)',
+                        location: ['念念的房间'],
+                        role: ['User', '念念']
+                    }
+                ]
+            },
+            sources
+        );
+
+        expect(result.summary).toBe('在夸赞念念的口交技巧后，User追问其私密欲望……');
+        expect(result.timeAnchor).toBe('2021-01-16 08:06:00 - 10:23:00');
+        // 括号里是模型自己加的解释，不该进卡片标题
+        expect(result.event).toBe('晨间对话');
+        expect(result.location).toEqual(['念念的房间']);
+    });
+
+    it('主题后接括号解释时才截断，普通标题保持原样', () => {
+        const withParen = normalizeTrimResponse(
+            { events: [{ meta: { event: '穿越初期（含大量铺垫）' }, summary: 'x' }] },
+            sources
+        );
+        const plain = normalizeTrimResponse(
+            { events: [{ meta: { event: '穿越初期至冒险起步' }, summary: 'x' }] },
+            sources
+        );
+
+        expect(withParen.event).toBe('穿越初期');
+        expect(plain.event).toBe('穿越初期至冒险起步');
+    });
 });
 
 describe('deriveTimeAnchor', () => {

@@ -35,6 +35,34 @@ export interface NormalizedTrimResult {
 const pickString = (value: unknown): string =>
     typeof value === 'string' && value.trim().length > 0 ? value : '';
 
+/**
+ * V1.5.2: 按别名依次取值。
+ * 模型跑偏时会自造字段名：正文写作 `description` / `content` / `text`，
+ * 时间写作 `date` / `datetime` / `time_range`。逐个试，取第一个非空字符串。
+ */
+const SUMMARY_KEYS = ['summary', 'description', 'content', 'text', 'detail', 'narrative'];
+const TIME_KEYS = ['time_anchor', 'time', 'date', 'datetime', 'time_range', 'date_range'];
+const EVENT_KEYS = ['event', 'title', 'topic', 'theme'];
+
+const pickFirst = (source: any, keys: string[]): string => {
+    for (const key of keys) {
+        const hit = pickString(source?.[key]);
+        if (hit) {return hit;}
+    }
+    return '';
+};
+
+/**
+ * V1.5.2: 清理事件主题。
+ * 模型习惯在主题后面挂一段括号解释（如「晨间对话 (源于……，引发了……)」），
+ * 这段会原样进 structured_kv.event 并作为记忆流的卡片标题，长到没法看。
+ * 只在「括号后还有内容、且括号前是合理短语」时截断，避免误伤正常标题。
+ */
+const cleanEventTitle = (value: string): string => {
+    const match = /^(.{4,80}?)\s*[（(]/.exec(value);
+    return match ? match[1].trim() : value;
+};
+
 /** 截断快照，便于在日志里直接看出 LLM 究竟返回了什么形状 */
 const snapshot = (value: unknown, max = 300): string => {
     try {
@@ -120,9 +148,9 @@ export const normalizeTrimResponse = (
         return fallback(eventsToMerge);
     }
 
-    // 2. summary: 字符串元素本身就是摘要；对象元素取 summary 字段
+    // 2. summary: 字符串元素本身就是摘要；对象元素按别名取（summary → description → …）
     const summaries = usable
-        .map(e => (typeof e === 'string' ? e : e?.summary))
+        .map(e => (typeof e === 'string' ? e : pickFirst(e, SUMMARY_KEYS)))
         .filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
 
     // 3. meta 源: 优先第一个带 meta 对象的元素，其次退化为元素本身（兼容平铺字段）
@@ -146,14 +174,23 @@ export const normalizeTrimResponse = (
         location = mergeArrays(eventsToMerge.map(e => e?.structured_kv?.location));
     }
 
-    // 5. time_anchor
-    const timeAnchor = pickString(metaSource?.time_anchor)
-        || pickString(metaSource?.time)
-        || deriveTimeAnchor(eventsToMerge);
+    // 5. time_anchor（兼容 date / datetime 等别名）
+    const timeAnchor = pickFirst(metaSource, TIME_KEYS) || deriveTimeAnchor(eventsToMerge);
+
+    // 6. event（兼容 title / topic 等别名，并去掉模型附加的括号解释）
+    const event = cleanEventTitle(pickFirst(metaSource, EVENT_KEYS));
+
+    if (!pickString(metaSource?.summary)) {
+        Logger.warn('ApplyTrim', '精简结果未使用 summary 字段，已按别名兜底', {
+            summaryKeys: SUMMARY_KEYS.filter(k => k in metaSource),
+            timeKey: TIME_KEYS.find(k => pickString(metaSource?.[k])) ?? '(缺失)',
+            eventKey: EVENT_KEYS.find(k => pickString(metaSource?.[k])) ?? '(缺失)'
+        });
+    }
 
     return {
         causality: pickString(metaSource?.causality),
-        event: pickString(metaSource?.event),
+        event,
         location,
         summary: summaries.length > 0 ? summaries.join('\n\n') : fallback(eventsToMerge).summary,
         timeAnchor

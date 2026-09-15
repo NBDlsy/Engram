@@ -77,6 +77,14 @@
   此前只查 summary / event / role
 - 新增 `test/unit/sanitize.test.ts`（6 例），覆盖数字型 event、字符串型 location、缺失 structured_kv、
   非对象记录丢弃等场景
+- 修复 `ApplyTrim: 无有效的精简结果` 的另一种成因: 模型完全无视 trim 契约，吐出
+  `{"event": ..., "date": ..., "description": ..., "role": ..., "location": ...}`
+  —— 既无 `events` 外壳也无 `meta`/`summary`，旧的「像不像事件」判定（只看 summary / meta）
+  直接漏掉并把内容完整可用的结果判为无效。
+  `ApplyTrim` 改为命中任一事件字段即认；`trimNormalizer` 新增别名映射
+  （正文 summary→description→content→text，时间 time_anchor→date→datetime→time_range，
+  主题 event→title→topic），并去掉模型爱挂在主题后面的括号解释（否则会变成超长卡片标题）。
+  `trim.yaml` 增加「字段名禁令」，明确 `date` / `description` 等写法属违约
 
 
 ## [1.5.1] - 2026-04-22

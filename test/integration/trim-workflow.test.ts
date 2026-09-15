@@ -212,4 +212,32 @@ describe('TrimmerWorkflow 集成: LLM 输出不合规时不崩溃', () => {
         expect(result).not.toBeNull();
         expect(result?.newEvent.summary).toBe('无 kv 兜底摘要');
     });
+
+    it('V1.5.2: 模型用契约外字段名 (date/description) 时仍能完成精简', async () => {
+        const db = getDbForChat(chatId);
+        for (const e of [mkEvent(1), mkEvent(2), mkEvent(3)]) {
+            await db.events.put(e);
+        }
+
+        // 线上真实报错: ApplyTrim: 无有效的精简结果。
+        // 模型无视 trim 契约，吐出 event/date/description/role/location 这套字段，
+        // 既无 events 外壳也无 meta / summary，旧判定直接漏掉。
+        (llmAdapter.generate as any).mockResolvedValue({
+            success: true,
+            content: JSON.stringify({
+                date: '2021-01-16 08:06:00 - 10:23:00',
+                description: '在夸赞念念的口交技巧后，User追问其私密欲望……',
+                event: '晨间对话 (源于念念的主动邀欢和坦白)',
+                location: ['念念的房间'],
+                role: ['User', '念念']
+            })
+        });
+
+        const result = await eventTrimmer.trim(true);
+
+        expect(result).not.toBeNull();
+        expect(result?.newEvent.summary).toBe('在夸赞念念的口交技巧后，User追问其私密欲望……');
+        expect(result?.newEvent.structured_kv.time_anchor).toBe('2021-01-16 08:06:00 - 10:23:00');
+        expect(result?.newEvent.structured_kv.event).toBe('晨间对话');
+    });
 });

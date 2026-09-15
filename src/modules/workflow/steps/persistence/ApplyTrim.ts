@@ -19,6 +19,24 @@ const snapshot = (value: unknown, max = 500): string => {
     }
 };
 
+/**
+ * V1.5.2: 判断一个对象是否「像一条事件」。
+ *
+ * 线上真实案例：模型完全无视 trim 契约，吐出
+ * `{"event": "...", "date": "...", "description": "...", "role": ..., "location": ...}`
+ * ——既没有 `events` 外壳，也没有 `meta` / `summary`，旧的 `('summary' in parsed || 'meta' in parsed)`
+ * 判定直接漏掉，于是抛「无有效的精简结果」，而内容其实完全可用。
+ * 只要命中任一事件字段就认，后续由 trimNormalizer 做别名映射。
+ */
+const EVENT_LIKE_KEYS = [
+    'summary', 'meta', 'event', 'description', 'content', 'text', 'detail',
+    'time_anchor', 'date', 'time', 'location', 'role', 'logic', 'causality'
+];
+
+const looksLikeEvent = (value: unknown): boolean =>
+    value !== null && typeof value === 'object' && !Array.isArray(value) &&
+    EVENT_LIKE_KEYS.some(key => key in (value as Record<string, unknown>));
+
 export class ApplyTrim implements IStep {
     name = 'ApplyTrim';
 
@@ -41,13 +59,16 @@ export class ApplyTrim implements IStep {
         // V1.5.2: 宽容提取事件列表。模型常见的跑偏形态:
         //   1. 直接吐一个事件对象，忘了套 {"events": [...]} 外壳
         //   2. 顶层就是数组 (RobustJsonParser 通常已封装，这里兜底)
-        const rawEvents: unknown[] = Array.isArray(parsed?.events)
+        //   3. 用了契约外的字段名（date / description 等），但内容完整可用
+        const rawEvents: unknown[] = Array.isArray(parsed?.events) && parsed.events.length > 0
             ? parsed.events
-            : Array.isArray(parsed)
+            : Array.isArray(parsed) && parsed.length > 0
                 ? parsed
-                : (parsed && typeof parsed === 'object' && ('summary' in parsed || 'meta' in parsed))
-                    ? [parsed]
-                    : [];
+                : (parsed?.events && typeof parsed.events === 'object' && !Array.isArray(parsed.events))
+                    ? [parsed.events]
+                    : looksLikeEvent(parsed)
+                        ? [parsed]
+                        : [];
 
         if (rawEvents.length === 0) {
             Logger.error('ApplyTrim', '精简结果不可用，原始输出快照', {

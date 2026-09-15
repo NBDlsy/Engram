@@ -119,11 +119,20 @@ systemPrompt: |
       }
       ```
 
+      【字段名禁令】以下写法均属违约，会导致归档失败:
+        - 用 `date` / `datetime` / `time` 代替 `meta.time_anchor`
+        - 用 `description` / `content` / `text` 代替 `summary`
+        - 用 `title` / `topic` 代替 `meta.event`
+        - 把 `meta` 里的字段平铺到事件对象顶层
+        正文必须放在 `summary`，时间必须放在 `meta.time_anchor`，字段名一个字都不能改。
+
       【输出前校验清单】:
         - 外层是否为 `{ "events": [ ... ] }`，且数组内只有**一个**对象？
         - 该对象是否含有 `meta` 对象？所有结构化字段是否都在 `meta` 内部？
+        - 字段名是否与上面模板**完全一致**？（出现 `date` / `description` 即为违约）
         - `meta.location`、`meta.role`、`meta.logic` 是否都是数组？
         - `meta.time_anchor` 是否为历法日期范围？
+        - `meta.event` 是否为简短主题？（不要附加括号里的解释说明）
     </output_format>
 
     <example_demonstration>
