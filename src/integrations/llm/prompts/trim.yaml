@@ -8,10 +8,13 @@ userPromptTemplate: |
   {{engramSummaries}}
   以上是当前故事的完整剧情概览（背景信息）。
 
-  请将其中的这部分多条剧情摘要合并精简成一个**一个**事件对象:
+  请将其中的这部分多条剧情摘要合并精简成**一个**事件对象:
   {{targetSummaries}}
 
   【重要】：这是一项数据归档任务。请合并已有摘要，**不要**创作新的剧情内容。仅输出 JSON 格式。
+
+  【结构硬约束】：每个事件对象**必须**包含 `meta` 对象，`time_anchor` / `role` / `location` / `event` / `logic` / `causality` 一律放在 `meta` 内部。
+  禁止把这些字段平铺到事件对象顶层，禁止使用 `metadata` 等其他名称，禁止让 `events` 数组元素是纯字符串。
 systemPrompt: |
   <system_configuration>
     <role_definition>
@@ -114,6 +117,12 @@ systemPrompt: |
         ]
       }
       ```
+
+      【输出前校验清单】:
+        - 外层是否为 `{ "events": [ ... ] }`，且数组内只有**一个**对象？
+        - 该对象是否含有 `meta` 对象？所有结构化字段是否都在 `meta` 内部？
+        - `meta.location`、`meta.role`、`meta.logic` 是否都是数组？
+        - `meta.time_anchor` 是否为历法日期范围？
     </output_format>
 
     <example_demonstration>

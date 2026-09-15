@@ -1,3 +1,4 @@
+import { LogModule } from '@/core/logger';
 import type { WorkflowDefinition } from '../core/WorkflowEngine';
 import {
     BuildPrompt,
@@ -10,6 +11,7 @@ import {
 } from '../steps';
 
 export const createPreprocessWorkflow = (): WorkflowDefinition => ({
+    logModule: LogModule.PREPROCESS,
     name: 'PreprocessWorkflow',
     steps: [
         // 1. Unified context fetching

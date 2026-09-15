@@ -1,3 +1,4 @@
+import { LogModule } from '@/core/logger';
 import type { WorkflowDefinition } from '../core/WorkflowEngine';
 import {
     ApplyTrim,
@@ -11,6 +12,7 @@ import {
 } from '../steps';
 
 export const createTrimmerWorkflow = (): WorkflowDefinition => ({
+    logModule: LogModule.MEMORY_TRIM,
     name: 'TrimmerWorkflow',
     steps: [
         new StopGeneration(),

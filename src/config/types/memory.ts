@@ -11,6 +11,12 @@ export interface TrimConfig {
     countLimit: number;
     /** 保留最近 N 条不合并 */
     keepRecentCount?: number;
+    /**
+     * 单次精简最多合并多少条事件 (V1.5.2)
+     * 积压超过该值时分批合并，避免一次性把几十条事件塞进 prompt 导致输出过长、
+     * 模型丢失 meta 包裹层（这正是 ApplyTrim 崩溃的诱因）。
+     */
+    maxEventsPerTrim?: number;
     /** 是否保留原始条目（禁用而非删除） */
     preserveOriginal?: boolean;
     /** 是否启用预览确认 */

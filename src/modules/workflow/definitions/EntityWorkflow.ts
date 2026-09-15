@@ -1,3 +1,4 @@
+import { LogModule } from '@/core/logger';
 import type { WorkflowDefinition } from '../core/WorkflowEngine';
 import {
     BuildPrompt,
@@ -11,6 +12,7 @@ import {
 } from '../steps';
 
 export const createEntityWorkflow = (): WorkflowDefinition => ({
+    logModule: LogModule.MEMORY_ENTITY,
     name: 'EntityWorkflow',
     steps: [
         new FetchContext(),

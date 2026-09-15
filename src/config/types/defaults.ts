@@ -129,6 +129,7 @@ export const DEFAULT_TRIM_CONFIG: TrimConfig = {
     countLimit: 5,
     enabled: false,
     keepRecentCount: 3,
+    maxEventsPerTrim: 10,
     preserveOriginal: false,
     previewEnabled: true,
     tokenLimit: 4096,

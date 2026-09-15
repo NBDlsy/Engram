@@ -160,10 +160,13 @@ export class UserReview implements IStep {
             Logger.info('UserReview', '用户确认修订');
             return { action: 'next' };
 
-        } catch {
-            Logger.warn('UserReview', '用户取消操作');
+        } catch (error) {
+            // V1.5.2: 原写法用 `catch {` 却在下面引用 `e`，一旦真的抛错会先抛
+            // ReferenceError，导致上层按 error.message 识别 'UserCancelled' 的判断失效，
+            // 用户取消被误当成流程异常。这里补上 catch 绑定。
+            Logger.warn('UserReview', '用户取消操作', { error });
             notificationService.info('已取消操作', '操作取消');
-            throw new Error('UserCancelled', { cause: e });
+            throw new Error('UserCancelled', { cause: error });
         }
     }
     private clearContextOutput(context: JobContext) {

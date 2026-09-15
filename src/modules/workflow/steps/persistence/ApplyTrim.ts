@@ -7,6 +7,7 @@ import { useMemoryStore } from '@/state/memoryStore';
 import { notificationService } from '@/ui/services/NotificationService';
 import type { JobContext } from '../../core/JobContext';
 import type { IStep } from '../../core/Step';
+import { normalizeTrimResponse } from './trimNormalizer';
 
 export class ApplyTrim implements IStep {
     name = 'ApplyTrim';
@@ -17,7 +18,11 @@ export class ApplyTrim implements IStep {
         }
 
         const store = useMemoryStore.getState();
-        const eventsToMerge = context.input.eventsToMerge as EventNode[];
+        const eventsToMerge = (context.input.eventsToMerge as EventNode[]) || [];
+
+        if (eventsToMerge.length === 0) {
+            throw new Error('ApplyTrim: 待合并事件为空，无法精简');
+        }
 
         // Output from ParseJson (TrimResponse structure)
         // V1.2.2: 优先从 context.parsedData 读取，对齐 ParseJson 逻辑
@@ -27,33 +32,30 @@ export class ApplyTrim implements IStep {
             throw new Error('ApplyTrim: 无有效的精简结果');
         }
 
-        // 我们假设精简结果只包含 1 个合并后的事件 (或者 LLM 可能返回多个？EventTrimmer 取的是 0)
-        // 原逻辑: const firstParsed = parsed.events[0];
-        const firstParsed = parsed.events[0];
+        // V1.5.2: 归一化 LLM 输出，兼容 meta 缺失 / 平铺字段 / 字符串元素
+        const normalized = normalizeTrimResponse(parsed, eventsToMerge);
 
         // 1. 保存新的合并事件
         const newEvent = await store.saveEvent({
-            summary: parsed.events.map((e: any) => e.summary).join('\n\n'), // 如果有多个，合并 summary? 或者只取第一个
-            structured_kv: {
-                causality: 'Chain',
-                event: '精简合并',
-                location: Array.isArray(firstParsed.meta.location)
-                    ? firstParsed.meta.location as string[]
-                    : [firstParsed.meta.location].filter((x: any) => Boolean(x)),
-                logic: this.mergeArrays(eventsToMerge.map(e => e.structured_kv.logic)),
-                role: this.mergeArrays(eventsToMerge.map(e => e.structured_kv.role)),
-                time_anchor: firstParsed.meta.time_anchor || ''
-            },
-            significance_score: Math.max(...eventsToMerge.map(e => e.significance_score)),
-            level: 1,  // 标记为二层精简
-            is_embedded: false,
             is_archived: false,
+            is_embedded: false,
+            level: 1,  // 标记为二层精简
             // V1.5: 时空归一化核心，抢占它所有子节点中最老的一个时间点并再提前 1 毫秒，确立绝对统领排序位置
-            timestamp: Math.min(...eventsToMerge.map(e => e.timestamp)) - 1,
+            significance_score: Math.max(...eventsToMerge.map(e => e.significance_score ?? 0)),
             source_range: {
                 end_index: Math.max(...eventsToMerge.map(e => e.source_range?.end_index ?? 0)),
                 start_index: Math.min(...eventsToMerge.map(e => e.source_range?.start_index ?? 0))
-            }
+            },
+            structured_kv: {
+                causality: 'Chain',
+                event: '精简合并',
+                location: normalized.location,
+                logic: this.mergeArrays(eventsToMerge.map(e => e.structured_kv?.logic ?? [])),
+                role: this.mergeArrays(eventsToMerge.map(e => e.structured_kv?.role ?? [])),
+                time_anchor: normalized.timeAnchor
+            },
+            summary: normalized.summary,
+            timestamp: Math.min(...eventsToMerge.map(e => e.timestamp)) - 1
         });
 
         // 2. 联动嵌入 (Trim Linkage)
@@ -100,8 +102,11 @@ export class ApplyTrim implements IStep {
     private mergeArrays(arrays: string[][]): string[] {
         const set = new Set<string>();
         for (const arr of arrays) {
+            if (!Array.isArray(arr)) {continue;}
             for (const item of arr) {
-                set.add(item);
+                if (typeof item === 'string' && item.trim().length > 0) {
+                    set.add(item);
+                }
             }
         }
         return [...set];

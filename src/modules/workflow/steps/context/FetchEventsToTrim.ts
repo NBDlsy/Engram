@@ -12,7 +12,18 @@ export class FetchEventsToTrim implements IStep {
         const keepRecentCount = config.keepRecentCount || 3;
 
         const store = useMemoryStore.getState();
-        const eventsToMerge = await store.getEventsToMerge(keepRecentCount);
+        const pending = await store.getEventsToMerge(keepRecentCount);
+
+        // V1.5.2: 分批合并。积压过多时只取最老的一批，避免 prompt 过长导致
+        // LLM 输出跑偏（历史上曾因此丢掉 meta 包裹层，直接搞崩 ApplyTrim）。
+        const maxEventsPerTrim = config.maxEventsPerTrim || 10;
+        const eventsToMerge = pending.length > maxEventsPerTrim
+            ? pending.slice(0, maxEventsPerTrim)
+            : pending;
+
+        if (pending.length > maxEventsPerTrim) {
+            Logger.debug('FetchEventsToTrim', `积压 ${pending.length} 条，本次仅合并最老的 ${maxEventsPerTrim} 条`);
+        }
 
         if (eventsToMerge.length < 2) {
             // 逻辑决定是throw还是warn。通常如果手动触发，应该throw明确告知。
