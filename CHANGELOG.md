@@ -35,6 +35,12 @@
 - 精简结果宽容提取: 模型忘了套 `{"events": [...]}` 外壳（直接吐单个事件对象）或顶层就是数组时，
   `ApplyTrim` 不再抛"无有效的精简结果"，改为按单事件处理；`ParseJson` 遇到 `{"events": {...}}`
   也从"清空为 []"改为"包成数组保留"。真正无可用内容时仍抛错，但会带上原始输出快照便于定位
+- 修复大幕动画导致的「界面变透明、完全无法操作」死锁:
+  `CurtainOverlay` 把 onCovered / onReveal / onComplete 直接放进 effect 依赖，父组件每次 setState
+  都会换掉回调身份 → effect 重跑 → `ctx.revert()` 掐断正在播放的 GSAP 时间线 → onComplete 永不触发。
+  结果停在「内容已卸载 + pointer-events:none」的状态，界面只剩透明外壳且点不动。
+  改为用 ref 持有回调（依赖收敛为 mode/direction/hostColor），并在 MainLayout 加生命周期看门狗：
+  开幕/闭幕超过 2.5s 未结束则强制推进到终态；关闭请求增加日志记录
 - 修复「记忆编辑中搜索事件时整个界面变透明、完全无法操作」:
   列表使用 `GroupedVirtuoso` 虚拟化，搜索过滤后组件可能带着**旧的分组索引**回调
   `groupContent` / `itemContent`，原先未判空 → `group` 为 undefined 直接抛错 →

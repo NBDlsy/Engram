@@ -25,6 +25,12 @@ export const CurtainOverlay: React.FC<CurtainOverlayProps> = memo(({
     const containerRef = useRef<HTMLDivElement>(null);
     const layerRef = useRef<HTMLDivElement>(null);
 
+    // V1.5.2: 回调放进 ref。此前它们直接在 deps 里，父组件每次 setState 都会换掉回调身份，
+    // 导致 effect 重跑 → ctx.revert() 把正在播放的时间线掐断 → onComplete 永远不触发，
+    // 界面就停在「内容已卸载 + pointer-events:none」的透明死锁状态。
+    const cbsRef = useRef({ onCovered, onComplete, onReveal });
+    cbsRef.current = { onCovered, onComplete, onReveal };
+
     useLayoutEffect(() => {
         const isHorizontal = direction === 'left';
         const axis = isHorizontal ? 'x' : 'y';
@@ -36,7 +42,7 @@ export const CurtainOverlay: React.FC<CurtainOverlayProps> = memo(({
         const ctx = gsap.context(() => {
             const tl = gsap.timeline({
                 onComplete: () => {
-                    if (onComplete) {onComplete();}
+                    cbsRef.current.onComplete?.();
                 }
             });
 
@@ -54,13 +60,13 @@ export const CurtainOverlay: React.FC<CurtainOverlayProps> = memo(({
                     opacity: 1,
                     duration: 0.5, // 0.7 -> 0.5
                     ease: 'power2.out',
-                    onComplete: () => onCovered?.()
+                    onComplete: () => cbsRef.current.onCovered?.()
                 })
                 .to(layerRef.current, {
                     backgroundColor: targetColor,
                     duration: 0.35 // 0.5 -> 0.35
                 })
-                .add(() => onReveal?.())
+                .add(() => cbsRef.current.onReveal?.())
                 .to(layerRef.current, {
                     [axis]: exitDistance,
                     duration: 0.55, // 0.8 -> 0.55
@@ -76,7 +82,7 @@ export const CurtainOverlay: React.FC<CurtainOverlayProps> = memo(({
                     backgroundColor: targetColor,
                     duration: 0.45, // 0.6 -> 0.45
                     ease: 'power2.in',
-                    onComplete: () => onCovered?.()
+                    onComplete: () => cbsRef.current.onCovered?.()
                 })
                 .to(layerRef.current, {
                     backgroundColor: hostColor,
@@ -91,7 +97,7 @@ export const CurtainOverlay: React.FC<CurtainOverlayProps> = memo(({
         }, containerRef);
 
         return () => ctx.revert();
-    }, [mode, direction, onComplete, onReveal, onCovered, hostColor]);
+    }, [mode, direction, hostColor]);
 
     return (
         <div className="engram-curtain-container" ref={containerRef}>
