@@ -101,6 +101,11 @@
   三处修复: `ModelLogger` 新增 `normalizeLogType`（写入即归一，'trimming'→'trim'、
   'generation'→'other'）、`ModelLog` 视图兜底回「其他」、`EventTrimmer` 与 `LlmRequest` 改正传参。
   新增 `test/unit/model-log-type.test.ts`（5 例）
+- 性能: `EventTrimmer.getStatus()` 统计「已精简条目」(level>=1) 改用 level 索引
+  `db.events.where('level').aboveOrEqual(1).count()`，不再 `getAllEvents()` 拉全表再过滤。
+  新增 `MemoryStore.countCompressedEvents()`。实测 3000 条事件下 **48.5ms → 1.0ms**（约 48 倍），
+  且旧写法随事件数线性增长。索引不可用时自动回退全表扫描并告警。
+  新增 `test/integration/compressed-count.test.ts`（3 例，含与旧口径的一致性比对）
 - 测试: 新增 `test/unit/build-prompt-trim-guard.test.ts`（4 例）；
   `test/setup.ts` 补最小 `document` 桩，消除 SyncService / StopGeneration 在 node 环境下的
   无关 unhandled rejection 噪音（此前刷屏，会掩盖真实失败）

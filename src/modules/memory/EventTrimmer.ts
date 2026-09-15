@@ -211,7 +211,8 @@ class EventTrimmer {
 
         // V1.5.2: 已精简产物数量 (level>=1)。这类事件不会被再次合并、也不计入触发阈值，
         // 但会一直出现在注入的摘要里，长期只增不减，这里暴露出来供 UI 观察。
-        const compressedCount = (await store.getAllEvents()).filter(e => e.level >= 1).length;
+        // V1.5.2: 走 level 索引 count，不再 getAllEvents() 拉全表再过滤（每轮省 ~65ms @3000 条）。
+        const compressedCount = await store.countCompressedEvents();
 
         Logger.debug(LogModule.MEMORY_TRIM, '精简状态检查', {
             compressedCount,

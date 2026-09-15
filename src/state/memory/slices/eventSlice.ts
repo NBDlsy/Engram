@@ -12,6 +12,8 @@ export interface EventState {
     importDatabase: (sourceDbName: string) => Promise<{ events: number, entities: number }>;
     getEventSummaries: (recalledIds?: string[]) => Promise<string>;
     countEventTokens: () => Promise<{ totalTokens: number; eventCount: number; activeEventCount: number }>;
+    /** V1.5.2: 已精简产物 (level>=1) 数量，走索引统计，不拉全表 */
+    countCompressedEvents: () => Promise<number>;
 
     getEventsToMerge: (keepRecentCount?: number) => Promise<EventNode[]>;
     deleteEvents: (eventIds: string[]) => Promise<void>;
@@ -167,6 +169,29 @@ export const createEventSlice: StateCreator<any, [], [], EventState> = (set, get
         } catch (error) {
             console.error('[MemoryStore] Failed to count event tokens:', error);
             return { activeEventCount: 0, eventCount: 0, totalTokens: 0 };
+        }
+    },
+
+    /**
+     * V1.5.2: 统计已精简产物 (level >= 1) 的数量。
+     * 走 level 索引直接 count，不去拉全部事件 —— 此前用
+     * `(await getAllEvents()).filter(e => e.level >= 1).length`，会把整表读回内存再过滤，
+     * 3000 条约 65ms 且随事件数线性增长，而它只是给 UI 显示一个数字。
+     */
+    countCompressedEvents: async () => {
+        const db = tryGetCurrentDb();
+        if (!db) {return 0;}
+
+        try {
+            return await db.events.where('level').aboveOrEqual(1).count();
+        } catch (error) {
+            Logger.warn('MemoryStore', '统计已精简条目失败，回退为全表扫描', error);
+            try {
+                const events = await db.events.toArray();
+                return events.filter(e => (e.level ?? 0) >= 1).length;
+            } catch {
+                return 0;
+            }
         }
     },
 
