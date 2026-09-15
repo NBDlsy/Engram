@@ -12,6 +12,9 @@ export {
     callPopup, createTopBarButton, mountGlobalOverlay, openMainPanel, setGlobalRenderer, setReactRenderer, toggleMainPanel
 } from "../ui/ui";
 
+declare const __ENGRAM_VERSION__: string;
+declare const __ENGRAM_BUILD_TIME__: string;
+
 /**
  * 初始化 Engram 插件
  */
@@ -19,6 +22,13 @@ export async function initializeEngram(): Promise<void> {
     // 初始化日志系统
     const { Logger } = await import('@/core/logger');
     await Logger.init();
+
+    // V1.5.2: 打印构建版本与构建时间。
+    // 线上排障（例如"改了代码但线上还在报旧错"）时，先看这行就能确认浏览器加载的是哪一版 bundle。
+    // typeof 兜底：vitest 不注入这两个常量。
+    const buildVersion = typeof __ENGRAM_VERSION__ !== 'undefined' ? __ENGRAM_VERSION__ : 'dev';
+    const buildStamp = typeof __ENGRAM_BUILD_TIME__ !== 'undefined' ? __ENGRAM_BUILD_TIME__ : 'dev';
+    Logger.info('STBridge', `Engram v${buildVersion} 已加载`, { buildTime: buildStamp });
 
     Logger.info('STBridge', 'Engram 插件正在初始化...');
 
