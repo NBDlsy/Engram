@@ -83,7 +83,10 @@ const LogCard: React.FC<{
         countTokens();
     }, [sent, received, expanded]);
 
-    const typeConfig = TYPE_LABELS[sent.type];
+    // V1.5.2: 兜底。TYPE_LABELS 缺 key 时 typeConfig 为 undefined，
+    // 下一行读 .color 会抛 "Cannot read properties of undefined (reading 'color')"
+    // 并让整个模型日志视图变成「组件加载失败」。未知类型退回「其他」。
+    const typeConfig = TYPE_LABELS[sent.type] ?? TYPE_LABELS.other;
 
     return (
         <div className="border border-border rounded-lg overflow-hidden bg-card">

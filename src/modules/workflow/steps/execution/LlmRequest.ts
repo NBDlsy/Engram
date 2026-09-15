@@ -41,7 +41,10 @@ export class LlmRequest implements IStep {
 
         // 1. 记录发送日志
         const logId = ModelLogger.logSend({
-            type: context.config.logType || 'generation', // 允许 config 覆盖
+            // V1.5.2: 默认值必须是契约内的 'other'。此前写的是 'generation'，
+            // 不在 MODEL_LOG_TYPES 里，会让模型日志视图读 undefined.color 而崩溃。
+            // ModelLogger.logSend 还会再做一次归一，双保险。
+            type: context.config.logType || 'other', // 允许 config 覆盖
             systemPrompt: system,
             userPrompt: user,
             model: getCurrentModel() || 'Unknown',

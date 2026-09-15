@@ -93,6 +93,14 @@
   `BuildPrompt` 另加一条 debug 日志，记录实际解析到的模板 id / 名称 / 是否内置，便于自查
 - 修复 `TrimmerWorkflow` 分类值写错: `category: 'trimming'` 不在 `PromptCategory` 枚举里
   （正确值是 `'trim'`），一旦调用方没传 templateId，按分类解析会查不到任何模板
+- 修复「打开模型日志 → 组件加载失败 / Cannot read properties of undefined (reading 'color')」:
+  `ModelLog` 用 `TYPE_LABELS[sent.type].color` 取样式，而 `type` 存了契约外的值 ——
+  `EventTrimmer` 一直传 `logType: 'trimming'`（正确值是 `'trim'`），
+  `LlmRequest` 的默认值 `'generation'` 同样不在 `MODEL_LOG_TYPES` 里。
+  精简一跑就会写入这种条目，于是模型日志视图一打开就崩。
+  三处修复: `ModelLogger` 新增 `normalizeLogType`（写入即归一，'trimming'→'trim'、
+  'generation'→'other'）、`ModelLog` 视图兜底回「其他」、`EventTrimmer` 与 `LlmRequest` 改正传参。
+  新增 `test/unit/model-log-type.test.ts`（5 例）
 - 测试: 新增 `test/unit/build-prompt-trim-guard.test.ts`（4 例）；
   `test/setup.ts` 补最小 `document` 桩，消除 SyncService / StopGeneration 在 node 环境下的
   无关 unhandled rejection 噪音（此前刷屏，会掩盖真实失败）

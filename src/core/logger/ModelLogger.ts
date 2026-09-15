@@ -5,6 +5,32 @@
  * 仅内存存储，不导出，不持久化
  */
 
+/**
+ * V1.5.2: 合法的调用类型。视图与存储共用同一份，避免再次出现「存了表外的 type」。
+ */
+export const MODEL_LOG_TYPES = [
+    'summarize', 'trim', 'vectorize', 'query', 'entity_extraction', 'other'
+] as const;
+
+/**
+ * 把任意 type 收敛为合法值。
+ * 'trimming' 是既有 bug（EventTrimmer 一直传错），这里做同义映射而不是直接丢到 other，
+ * 免得既有的精简日志在视图里全部显示成「其他」。
+ */
+export function normalizeLogType(type: unknown): ModelLogEntry['type'] {
+    if (typeof type !== 'string') {return 'other';}
+    if ((MODEL_LOG_TYPES as readonly string[]).includes(type)) {
+        return type as ModelLogEntry['type'];
+    }
+    // 同义 / 历史遗留值
+    const aliases: Record<string, ModelLogEntry['type']> = {
+        generation: 'other',
+        summarize: 'summarize',
+        trimming: 'trim',
+    };
+    return aliases[type] ?? 'other';
+}
+
 /** 模型日志条目 */
 export interface ModelLogEntry {
     /** 唯一 ID */
@@ -60,6 +86,12 @@ class ModelLoggerClass {
 
     /**
      * 创建新的日志条目（发送阶段）
+     *
+     * V1.5.2: type 在此统一归一。此前调用方传了契约外的值
+     * （EventTrimmer 传 'trimming'、LlmRequest 默认 'generation'），
+     * 而 ModelLog 视图用 TYPE_LABELS[type].color 取样式，
+     * 拿到 undefined 就抛 "Cannot read properties of undefined (reading 'color')"，
+     * 表现为「打开模型日志 → 组件加载失败」。
      */
     logSend(data: {
         type: ModelLogEntry['type'];
@@ -82,7 +114,7 @@ class ModelLoggerClass {
             systemPrompt: data.systemPrompt,
             timestamp: Date.now(),
             tokensSent: data.tokensSent,
-            type: data.type,
+            type: normalizeLogType(data.type),
             userPrompt: data.userPrompt,
         };
 

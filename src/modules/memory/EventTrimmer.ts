@@ -136,7 +136,9 @@ class EventTrimmer {
                     maxEventsPerTrim: config.maxEventsPerTrim,
                     previewEnabled: (SettingsManager.get('globalPreviewEnabled') ?? true) && (config.previewEnabled ?? true),
                     templateId: 'builtin_trim', // Hardcoded for now, matches BuildPrompt category mapping potentially
-                    logType: 'trimming'
+                    // V1.5.2: 正确值是 'trim'。'trimming' 不在 ModelLogEntry['type'] 里，
+                    // 会让模型日志视图取不到样式配置而崩溃（读 undefined.color）。
+                    logType: 'trim'
                 },
                 trigger: manual ? 'manual' : 'auto'
             });
