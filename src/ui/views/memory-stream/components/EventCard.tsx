@@ -70,7 +70,8 @@ function EmbeddingBadge({ isEmbedded }: { isEmbedded: boolean }) {
  * 提取元数据行
  */
 function MetaLine({ event }: { event: EventNode }) {
-    const kv = event.structured_kv;
+    // V1.5.2: 老数据 / 导入事件可能没有 structured_kv，裸读会让整张卡片渲染失败
+    const kv = event.structured_kv ?? {} as EventNode['structured_kv'];
     // 不再合并为一个字符串，而是保留语义信息单独渲染
     const hasData = kv.time_anchor || kv.location || (kv.role && kv.role.length > 0);
     if (!hasData) {return null;}
@@ -107,14 +108,14 @@ export const EventCard: React.FC<EventCardProps> = ({
     className = '',
 }) => {
     const isLocked = event.is_locked;
-    const kv = event.structured_kv;
+    const kv = event.structured_kv ?? {} as EventNode['structured_kv'];
 
     // 提取纯文本（去掉标题行）
-    const summaryLines = event.summary.split('\n');
+    const summaryLines = (event.summary ?? '').split('\n');
     const eventTitle = kv.event || summaryLines[0]?.replace(/:\s*$/, '') || '未知事件';
     const summaryText = summaryLines.length > 1
         ? summaryLines.slice(1).join(' ').trim()
-        : event.summary;
+        : (event.summary ?? '');
 
     // 紧凑模式（移动端）
     if (isCompact) {

@@ -94,6 +94,10 @@ export const EventList: React.FC<EventListProps> = ({
                         groupCounts={groupedEvents.map(g => g.events.length)}
                         groupContent={(index) => {
                             const group = groupedEvents[index];
+                            // V1.5.2: 搜索让列表骤减时，virtuoso 可能带着旧索引回调（group 已不存在）。
+                            // 这里漏判会让整个 React 树卸载 —— 表现为界面突然透明、任何操作都失效。
+                            if (!group) {return null;}
+
                             const allChecked = group.events.length > 0 && group.events.every(e => checkedIds.has(e.id));
                             const someChecked = group.events.some(e => checkedIds.has(e.id));
 
@@ -123,6 +127,9 @@ export const EventList: React.FC<EventListProps> = ({
                         }}
                         itemContent={(index, groupIndex) => {
                             const group = groupedEvents[groupIndex];
+                            // 同上：过滤后旧索引可能越界
+                            if (!group) {return null;}
+
                             // O(1) 读取预计算的分组起始索引
                             const itemIndex = index - (groupStartIndices[groupIndex] || 0);
 
