@@ -151,7 +151,7 @@ export const EventList: React.FC<EventListProps> = ({
                                     <div className="absolute left-[9px] top-[calc(50%-8px)] w-[6px] h-[6px] rounded-full bg-foreground opacity-30 transition-colors group-hover/card:bg-primary z-10" />
 
                                     <div className="relative z-10 w-full pl-3">
-                                        <ErrorBoundary>
+                                        <ErrorBoundary label={`事件 ${event.id}`}>
                                             <EventCard
                                                 event={event}
                                                 isSelected={viewMode === 'edit' && selectedId === event.id}

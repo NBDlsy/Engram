@@ -109,6 +109,8 @@ export const EventCard: React.FC<EventCardProps> = ({
 }) => {
     const isLocked = event.is_locked;
     const kv = event.structured_kv ?? {} as EventNode['structured_kv'];
+    // V1.5.2: 老数据可能没有 significance_score，直接 toFixed 会让整张卡片渲染失败
+    const score = typeof event.significance_score === 'number' ? event.significance_score : 0;
 
     // 提取纯文本（去掉标题行）
     const summaryLines = (event.summary ?? '').split('\n');
@@ -152,8 +154,8 @@ export const EventCard: React.FC<EventCardProps> = ({
                         {event.is_embedded && (
                             <Zap size={10} className="text-label" />
                         )}
-                        <span className={`text-xs ${event.significance_score >= 0.8 ? 'text-emphasis' : (event.significance_score >= 0.5 ? 'text-value' : 'text-label')}`}>
-                            {event.significance_score.toFixed(1)}
+                        <span className={`text-xs ${score >= 0.8 ? 'text-emphasis' : (score >= 0.5 ? 'text-value' : 'text-label')}`}>
+                            {score.toFixed(1)}
                         </span>
                     </div>
                     <p className="text-sm text-foreground truncate mt-1">
@@ -294,7 +296,7 @@ export const EventCard: React.FC<EventCardProps> = ({
 
                 <div className="w-px h-3 bg-border mx-1 opacity-20" />
                 
-                <ScoreDots score={event.significance_score} />
+                <ScoreDots score={score} />
             </div>
 
             {/* 元数据行 */}
