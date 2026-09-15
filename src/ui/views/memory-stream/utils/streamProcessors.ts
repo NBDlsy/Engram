@@ -3,6 +3,19 @@ import type { EntityNode, EventNode } from '@/data/types/graph';
 import type { EntityGroupMode, EntitySortMode, GroupedEvent, SortOrder } from '../hooks/useMemoryStream';
 
 /**
+ * V1.5.2: 把任意脏值安全地转成可搜索文本。
+ * 库里存在 structured_kv.event / role 被写成数字、数组甚至对象的情况，
+ * 直接 .toLowerCase() 会抛 "xxx is not a function"，且只在搜索时才执行，
+ * 表现为「一搜索整个视图就崩」。
+ */
+const toText = (value: unknown): string => {
+    if (typeof value === 'string') {return value;}
+    if (Array.isArray(value)) {return value.map(toText).join(' ');}
+    if (value === null || value === undefined) {return '';}
+    return String(value);
+};
+
+/**
  * 过滤事件列表
  */
 export function filterEvents(
@@ -22,9 +35,10 @@ export function filterEvents(
         const q = searchQuery.toLowerCase();
         result = result.filter(e => {
             const kv = e.structured_kv ?? {};
-            return (e.summary ?? '').toLowerCase().includes(q) ||
-                kv.event?.toLowerCase().includes(q) ||
-                kv.role?.some(r => r.toLowerCase().includes(q));
+            return toText(e.summary).toLowerCase().includes(q) ||
+                toText(kv.event).toLowerCase().includes(q) ||
+                toText(kv.location).toLowerCase().includes(q) ||
+                (Array.isArray(kv.role) && kv.role.some(r => toText(r).toLowerCase().includes(q)));
         });
     }
 
@@ -111,9 +125,9 @@ export function filterEntities(
 
     const q = searchQuery.toLowerCase();
     return result.filter(e =>
-        e.name.toLowerCase().includes(q) ||
-        e.aliases?.some((a: string) => a.toLowerCase().includes(q)) ||
-        e.description?.toLowerCase().includes(q)
+        toText(e.name).toLowerCase().includes(q) ||
+        (Array.isArray(e.aliases) && e.aliases.some(a => toText(a).toLowerCase().includes(q))) ||
+        toText(e.description).toLowerCase().includes(q)
     );
 }
 

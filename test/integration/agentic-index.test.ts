@@ -67,6 +67,27 @@ describe('Agentic 索引', () => {
         expect(index).toContain('time_anchor="太阳历1000年冬1月1日"');
     });
 
+    it('V1.5.2: 字段是脏值（数字/字符串/对象）时仍能构建索引', async () => {
+        const db = getDbForChat(chatId);
+        const dirty = mkEvent('evt_dirty');
+        // 线上真实报错: e.replaceAll is not a function / role.join is not a function
+        Object.assign(dirty.structured_kv, {
+            causality: 42,
+            event: 1024,
+            location: '王城',           // 写成字符串而非数组
+            role: ['A', 'B'],
+            time_anchor: 302            // 数字
+        });
+        await db.events.put(dirty);
+
+        const index = await useMemoryStore.getState().getAgenticIndex();
+
+        expect(index).toContain('id="evt_dirty"');
+        expect(index).toContain('event="1024"');
+        expect(index).toContain('location="王城"');
+        expect(index).toContain('role="A, B"');
+    });
+
     it('time_anchor 缺失时不输出该属性，也不会崩', async () => {
         const db = getDbForChat(chatId);
         const broken = mkEvent('evt_no_time');

@@ -326,17 +326,28 @@ export const createEventSlice: StateCreator<any, [], [], EventState> = (set, get
             archivedEvents.sort((a, b) => a.timestamp - b.timestamp);
 
             // 构建极简 XML record（仅使用 structured_kv，不含 summary 长文本）
-            const escapeXml = (s: string) => s.replaceAll(/&/g, '&amp;').replaceAll(/"/g, '&quot;').replaceAll(/</g, '&lt;').replaceAll(/>/g, '&gt;');
+            // V1.5.2: 字段可能被写成数字/数组/对象，直接 replaceAll 会抛
+            // "e.replaceAll is not a function"，导致整个索引构建失败
+            const escapeXml = (s: unknown) => String(s ?? '').replaceAll(/&/g, '&amp;').replaceAll(/"/g, '&quot;').replaceAll(/</g, '&lt;').replaceAll(/>/g, '&gt;');
+
+            // V1.5.2: 列表字段可能是数组、字符串或其它脏值，逐个容错
+            const listAttr = (name: string, value: unknown): string => {
+                if (value === null || value === undefined || value === '') {return '';}
+                const text = Array.isArray(value)
+                    ? value.filter(v => v !== null && v !== undefined).join(', ')
+                    : String(value);
+                return text ? `${name}="${escapeXml(text)}"` : '';
+            };
 
             const buildRecord = (e: EventNode, extraAttrs?: string) => {
-                const kv = e.structured_kv;
+                const kv = e.structured_kv ?? {} as EventNode['structured_kv'];
                 const attrs = [
                     `id="${e.id}"`,
-                    `event="${escapeXml(kv?.event || '')}"`,
-                    // V1.5.2: 补上时间锚点，让召回裁判能按时间远近判断相关性
+                    `event="${escapeXml(kv?.event ?? '')}"`,
+                    // V1.5.2: 时间锚点，让召回裁判能按时间远近判断相关性
                     kv?.time_anchor ? `time_anchor="${escapeXml(kv.time_anchor)}"` : '',
-                    kv?.role?.length ? `role="${escapeXml(kv.role.join(', '))}"` : '',
-                    kv?.location?.length ? `location="${escapeXml(kv.location.join(', '))}"` : '',
+                    listAttr('role', kv?.role),
+                    listAttr('location', kv?.location),
                     kv?.causality ? `causality="${escapeXml(kv.causality)}"` : '',
                     extraAttrs || '',
                 ].filter(Boolean).join(' ');

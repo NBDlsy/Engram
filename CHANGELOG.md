@@ -35,6 +35,12 @@
 - 精简结果宽容提取: 模型忘了套 `{"events": [...]}` 外壳（直接吐单个事件对象）或顶层就是数组时，
   `ApplyTrim` 不再抛"无有效的精简结果"，改为按单事件处理；`ParseJson` 遇到 `{"events": {...}}`
   也从"清空为 []"改为"包成数组保留"。真正无可用内容时仍抛错，但会带上原始输出快照便于定位
+- 修复「一搜索事件整个视图就崩」: `filterEvents` 里 `kv.event?.toLowerCase()` 假设字段是字符串，
+  而库里存在被写成数字/数组的 `structured_kv.event`（`TypeError: n.event?.toLowerCase is not a function`）。
+  该分支仅在有搜索词时才执行，所以表现为"不搜索没事、一搜索就崩"。新增 `toText` 统一容错，
+  `filterEntities` 同样处理
+- 修复 Agentic 索引构建失败 (`e.replaceAll is not a function`): `escapeXml` 与列表字段未做类型容错，
+  非字符串（数字/对象）或"写成字符串的数组字段"（`"王城".join` 不存在）都会抛错，导致整个索引为空
 - 渲染异常不再"哑巴失败": `ErrorBoundary` 现在把错误同步写入 Engram 开发者日志
   （含事件 id、错误消息、截断的组件栈），占位卡片也直接显示错误原因。
   此前只 `console.error`，日志面板查不到，用户只能看到一句"组件加载失败"无从下手
