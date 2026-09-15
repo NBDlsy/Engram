@@ -117,6 +117,43 @@ describe('TrimmerWorkflow 集成: LLM 输出不合规时不崩溃', () => {
         expect(merged.length).toBe(1);
         expect(merged[0].structured_kv.location.length).toBeGreaterThan(0);
         expect(merged[0].structured_kv.time_anchor).not.toBe('');
+        // meta 缺失 → event / causality 回退到旧的固定值
+        expect(merged[0].structured_kv.event).toBe('精简合并');
+        expect(merged[0].structured_kv.causality).toBe('Chain');
+    });
+
+    it('V1.5.2: meta 完整时采用 LLM 给的 event / causality，不再写死', async () => {
+        const db = getDbForChat(chatId);
+        for (const e of [mkEvent(1), mkEvent(2), mkEvent(3)]) {
+            await db.events.put(e);
+        }
+
+        (llmAdapter.generate as any).mockResolvedValue({
+            success: true,
+            content: JSON.stringify({
+                events: [
+                    {
+                        meta: {
+                            causality: '前期铺垫',
+                            event: '穿越初期至冒险起步',
+                            location: ['荒野森林', '边境公会'],
+                            role: ['A', 'B'],
+                            time_anchor: '太阳历1023年-1026年'
+                        },
+                        significance_score: 0.8,
+                        summary: '合并后的摘要'
+                    }
+                ]
+            })
+        });
+
+        const result = await eventTrimmer.trim(true);
+        expect(result).not.toBeNull();
+
+        const merged = await db.events.filter(e => e.level >= 1).toArray();
+        expect(merged.length).toBe(1);
+        expect(merged[0].structured_kv.event).toBe('穿越初期至冒险起步');
+        expect(merged[0].structured_kv.causality).toBe('前期铺垫');
     });
 
     it('events 元素为纯字符串时仍能完成精简', async () => {

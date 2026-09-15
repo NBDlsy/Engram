@@ -333,6 +333,8 @@ export const createEventSlice: StateCreator<any, [], [], EventState> = (set, get
                 const attrs = [
                     `id="${e.id}"`,
                     `event="${escapeXml(kv?.event || '')}"`,
+                    // V1.5.2: 补上时间锚点，让召回裁判能按时间远近判断相关性
+                    kv?.time_anchor ? `time_anchor="${escapeXml(kv.time_anchor)}"` : '',
                     kv?.role?.length ? `role="${escapeXml(kv.role.join(', '))}"` : '',
                     kv?.location?.length ? `location="${escapeXml(kv.location.join(', '))}"` : '',
                     kv?.causality ? `causality="${escapeXml(kv.causality)}"` : '',

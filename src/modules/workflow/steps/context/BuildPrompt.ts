@@ -161,6 +161,20 @@ export class BuildPrompt implements IStep {
             }
         }
 
+        // V1.5.2: 召回模板自愈。
+        // Agentic 召回依赖模型输出真实事件 ID，而只有 {{engramIndex}} 提供 id="evt_xxx"。
+        // 用户在设置里改过模板（换成 engramSummaries 等纯摘要宏）后，模型看不到 ID，
+        // agenticSearch 会全部落空。这里检测并补挂索引，避免"改了提示词就悄悄失效"。
+        if (template.id === 'builtin_agentic_recall' || category === 'preprocessing') {
+            const assembled = `${systemPrompt}${userPrompt}`;
+            if (!assembled.includes('{{engramIndex}}')) {
+                userPrompt += '\n\n【历史档案目录（每条 record 带 id，必须原样输出其 id 属性）】\n{{engramIndex}}\n';
+                Logger.warn('BuildPrompt', '召回模板未使用 {{engramIndex}}，已自动补挂索引', {
+                    templateId: template.id
+                });
+            }
+        }
+
         // 保存结果之前，调用酒馆原生宏替换 (处理 {{time}}, {{date}}, {{user}} 等标准宏)
         // 注意：我们必须先做上面的手动替换，因为 {{chatHistory}} 等变量在 Batch 模式下是特定的，不能用全局宏
         try {

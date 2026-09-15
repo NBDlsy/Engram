@@ -47,8 +47,10 @@ export class ApplyTrim implements IStep {
                 start_index: Math.min(...eventsToMerge.map(e => e.source_range?.start_index ?? 0))
             },
             structured_kv: {
-                causality: 'Chain',
-                event: '精简合并',
+                // V1.5.2: 之前写死 'Chain' / '精简合并'，合并事件在记忆流里无法分辨，
+                // 现在优先采用 LLM 的判断，缺失时才回退到旧的固定值。
+                causality: normalized.causality || 'Chain',
+                event: normalized.event || '精简合并',
                 location: normalized.location,
                 logic: this.mergeArrays(eventsToMerge.map(e => e.structured_kv?.logic ?? [])),
                 role: this.mergeArrays(eventsToMerge.map(e => e.structured_kv?.role ?? [])),

@@ -55,6 +55,30 @@ describe('normalizeTrimResponse', () => {
         expect(result.summary).toBe('合并后的摘要');
         expect(result.location).toEqual(['森林', '王城']);
         expect(result.timeAnchor).toBe('太阳历1023年-1026年');
+        // V1.5.2: event / causality 不再被 ApplyTrim 写死，需从 meta 透传
+        expect(result.event).toBe('冒险初期');
+        expect(result.causality).toBe('Chain');
+    });
+
+    it('V1.5.2: 缺 meta 时 event / causality 返回空串，由调用方兜底', () => {
+        const result = normalizeTrimResponse(
+            { events: [{ significance_score: 0.8, summary: '平铺摘要' }] },
+            sources
+        );
+
+        expect(result.event).toBe('');
+        expect(result.causality).toBe('');
+    });
+
+    it('V1.5.2: event / causality 写成非字符串时不影响其余字段', () => {
+        const result = normalizeTrimResponse(
+            { events: [{ meta: { causality: 42, event: null, location: ['王城'] }, summary: 'x' }] },
+            sources
+        );
+
+        expect(result.event).toBe('');
+        expect(result.causality).toBe('');
+        expect(result.location).toEqual(['王城']);
     });
 
     it('回归: 缺少 meta 包裹层不再抛 TypeError (原 ApplyTrim 崩溃场景)', () => {

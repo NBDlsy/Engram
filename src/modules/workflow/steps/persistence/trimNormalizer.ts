@@ -14,6 +14,16 @@ import type { EventNode } from '@/data/types/graph';
  */
 
 export interface NormalizedTrimResult {
+    /**
+     * 因果关联。V1.5.2: 之前 ApplyTrim 一律写死 'Chain'，
+     * 于是所有合并事件在记忆流里长得一模一样，这里改为优先采用 LLM 的判断。
+     */
+    causality: string;
+    /**
+     * 事件主题。V1.5.2: 之前写死 '精简合并'，导致合并事件无法分辨；
+     * 现在取 LLM 给的概括主题（如「穿越初期至冒险起步」），缺失时由调用方兜底。
+     */
+    event: string;
     /** 地点列表（已去重） */
     location: string[];
     /** 合并后的摘要 */
@@ -74,6 +84,8 @@ export const deriveTimeAnchor = (eventsToMerge: EventNode[]): string => {
 
 /** 完全无法从 LLM 结果中提取时的兜底：用原始事件拼接 */
 const fallback = (eventsToMerge: EventNode[]): NormalizedTrimResult => ({
+    causality: '',
+    event: '',
     location: mergeArrays(eventsToMerge.map(e => e?.structured_kv?.location)),
     summary: eventsToMerge.map(e => e?.summary ?? '').filter(Boolean).join('\n\n'),
     timeAnchor: deriveTimeAnchor(eventsToMerge)
@@ -140,6 +152,8 @@ export const normalizeTrimResponse = (
         || deriveTimeAnchor(eventsToMerge);
 
     return {
+        causality: pickString(metaSource?.causality),
+        event: pickString(metaSource?.event),
         location,
         summary: summaries.length > 0 ? summaries.join('\n\n') : fallback(eventsToMerge).summary,
         timeAnchor

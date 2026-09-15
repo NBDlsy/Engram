@@ -23,6 +23,20 @@
 - 归一化兜底时会记录 LLM 原始输出的截断快照，便于定位模型跑偏形态
 - 精简背景概览去重: `FormatTrimInput` 显式构造 `{{engramSummaries}}`，剔除本次待合并条目，
   修复同一批事件在 prompt 中出现两次（概览区 + 待合并区）导致的长度翻倍
+- 合并事件不再一律命名为「精简合并」: `ApplyTrim` 此前把 `structured_kv.event` / `causality`
+  写死为 `'精简合并'` / `'Chain'`，导致所有合并条目在记忆流里无法分辨。现改为采用 LLM 给的主题与因果
+  （经 `trimNormalizer` 归一化），仅在缺失时回退旧值
+- Agentic 索引 `getAgenticIndex()` 的 record 新增 `time_anchor` 属性，让召回裁判能按时间远近判断相关性
+  （此前 record 只有 id / event / role / location / causality，模型无从判断"久远"还是"近期"）
+- 内置提示词同步: 精简提示词统一 summary 字数要求（原 400-500 与 200-300 自相矛盾），
+  并禁止把历法时间改写为"第X天"等相对时间；摘要提示词补上 `time_anchor` 字段与相对时间换算规则；
+  召回提示词说明 record 属性构成，新增时间维度决策法则
+- 新增 `test/integration/agentic-index.test.ts`，并补充 event / causality 透传相关用例
+- Agentic 召回自愈: `BuildPrompt` 检测到召回模板未使用 `{{engramIndex}}` 时自动补挂索引并告警。
+  此前用户把数据源换成纯摘要宏后，模型看不到事件 ID，召回会静默失效（日志仅一行"无有效事件"）
+- 内置摘要提示词改用中性客观的用词准则（替换原"情境化用词"，后者会引导模型对亲密剧情做情感润色，
+  与"忠实记录"冲突），并新增 `<context_injection>` 段统一注入角色卡/世界书/历史摘要/图谱，
+  消除 userPromptTemplate 与系统提示词的重复宏注入
 
 
 ## [1.5.1] - 2026-04-22
