@@ -106,6 +106,23 @@
   新增 `MemoryStore.countCompressedEvents()`。实测 3000 条事件下 **48.5ms → 1.0ms**（约 48 倍），
   且旧写法随事件数线性增长。索引不可用时自动回退全表扫描并告警。
   新增 `test/integration/compressed-count.test.ts`（3 例，含与旧口径的一致性比对）
+- 修复 `Collection.toReversed is not a function` 导致的两处**静默失效**:
+  `toReversed()` 是 Array 的 ES2023 方法，Dexie 的 Collection 上并不存在（Collection 只有 `reverse()`），
+  而两处调用都被 try/catch 包着，报错只进日志、功能直接哑掉。
+  - `Retriever.rollingSearch`: 冷启动保护的兜底召回（滚动窗口）**从未生效过** ——
+    抛错被「冷启动检查失败，跳过保护逻辑」吞掉，实际走的是正常召回路径。
+      改为 `orderBy('timestamp').reverse().filter(...)`，语义也修正为「按时间取最近 N 条」
+      （原写法即便能跑，`filter` 集合的顺序是主键序，也不是时间序）。
+  - `MemoryAdapter`: 命令面板的记忆搜索**永远返回空**，异常被 catch 静默。
+  顺带消除 6 个 TS2551 类型错误（43 → 37）
+- 清理 3 个过期测试（此前长期挂红，掩盖真实回归）:
+  - `retrieval-workflow`: `Reranker` mock 缺 `getHybridAlpha`，`RerankMergeStep` 抛错后被
+    `ignoreFailure` 静默跳过，表现为 stepsExecuted 少一步。补齐 mock
+  - `workflow-retry`: 断言「取消时应抛原始错误」，与 `WorkflowEngine.run` 把取消统一转换成
+    `UserCancelled` 的既定行为矛盾（`EventTrimmer` 等依赖该字符串安静退出）。改断言，
+    保留真正重要的「停止重试」校验
+  - `retriever-coldstart`: mock 补 `orderBy`，并加断言锁住必须使用 Dexie 真实存在的 API
+  - 全量 **150 passed / 0 failed**（此前长期 4 failed）
 - 测试: 新增 `test/unit/build-prompt-trim-guard.test.ts`（4 例）；
   `test/setup.ts` 补最小 `document` 桩，消除 SyncService / StopGeneration 在 node 环境下的
   无关 unhandled rejection 噪音（此前刷屏，会掩盖真实失败）

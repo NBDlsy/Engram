@@ -434,17 +434,24 @@ class Retriever {
             return { entries: [], nodes: [] };
         }
 
+        // V1.5.2: `toReversed()` 是 Array 的 ES2023 方法，Dexie 的 Collection 上不存在
+        // （Collection 只有 `reverse()`）。原写法在运行期直接抛
+        // "db.events.filter(...).toReversed is not a function"，
+        // 导致冷启动保护被 catch 吞掉、静默失效。
+        // 正确写法：先按 timestamp 索引排序，再 reverse() 取最新。
         // 1. Get recent Level 0 (Details)
         const recentEvents = await db.events
+            .orderBy('timestamp')
+            .reverse()
             .filter(node => node.level === 0)
-            .toReversed()
             .limit(limit)
             .toArray();
 
         // 2. Get latest Level 1 (Macro Context)
         const latestMacro = await db.events
+            .orderBy('timestamp')
+            .reverse()
             .filter(node => node.level === 1)
-            .toReversed()
             .first();
 
         const nodes: EventNode[] = [...recentEvents];

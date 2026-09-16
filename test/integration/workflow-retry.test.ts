@@ -145,7 +145,12 @@ describe('WorkflowEngine Retry Mechanism', () => {
         // Now advance the rest of the time. The next retry attempt should detect cancellation before execution.
         await vi.advanceTimersByTimeAsync(3000);
         
-        await expect(promise).rejects.toThrow('429 Too Many Requests'); // Throw whatever is the last error, but crucially it should stop retrying.
+        // 关键断言是「停止重试」。至于抛出什么：
+        // WorkflowEngine.run 的 catch 在检测到 signal.cancelled 时，会把任何错误统一转换成
+        // `UserCancelled`（带 isCancellation 标记），供上层区分「用户取消」与「执行失败」——
+        // EventTrimmer 等就依赖这个字符串来决定安静退出而不是弹错误提示。
+        // 此处原先断言的是重试前的原始错误，与引擎的既定行为矛盾，属过期断言。
+        await expect(promise).rejects.toThrow('UserCancelled');
         expect(executeMock).toHaveBeenCalledTimes(1);
     });
 

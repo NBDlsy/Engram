@@ -1,4 +1,5 @@
 import type { SearchAdapter, SearchResult } from '../SearchService';
+import { toText } from '@/data/utils/sanitize';
 import { getCurrentChatId } from '@/integrations/tavern';
 import { tryGetDbForChat } from '@/data/db';
 import { Calendar, FileText } from 'lucide-react';
@@ -20,10 +21,12 @@ export class MemoryAdapter implements SearchAdapter {
             // But for < 10k items, simple filtering might be acceptable for a prototype.
             // Limit to top 5 for speed in the palette.
             // Optimize: Scan from newest to oldest (timestamp) and stop after 5 matches
+            // V1.5.2: Dexie Collection 没有 toReversed()（那是 Array 的 ES2023 方法），
+            // 原写法会在运行期抛错，被下面的 catch 吞掉 → 记忆搜索永远返回空。
             const events = await db.events
                 .orderBy('timestamp')
-                .toReversed()
-                .filter(e => e.summary.toLowerCase().includes(lowerQuery))
+                .reverse()
+                .filter(e => toText(e.summary).toLowerCase().includes(lowerQuery))
                 .limit(5)
                 .toArray();
 

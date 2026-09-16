@@ -67,7 +67,10 @@ vi.mock('@/modules/rag/retrieval/Reranker', () => ({
             { id: 'evt_2', score: 0.85 }
         ]),
         isEnabled: vi.fn().mockReturnValue(true),
-        isReady: vi.fn().mockResolvedValue(true)
+        isReady: vi.fn().mockResolvedValue(true),
+        // RerankMergeStep 会读混合权重；mock 缺这个函数会让该步抛错，
+        // 又因 ignoreFailure 被静默跳过，表现为 stepsExecuted 少一步。
+        getHybridAlpha: vi.fn().mockReturnValue(0.5)
     }
 }));
 
