@@ -1,3 +1,4 @@
+import { Logger } from '@/core/logger';
 import { UpdateService } from '@/core/updater/Updater';
 import { UpdateNotice } from "@/ui/components/feedback/UpdateNotice";
 import Header from '@/ui/components/layout/Header';
@@ -57,12 +58,38 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children, activeTab, set
         setHasUnreadUpdate(false);
     };
 
+    // V1.5.2: 生命周期看门狗。
+    // 大幕动画一旦因故没跑完，界面会停在「内容已卸载 + pointer-events:none」的透明死锁状态，
+    // 用户什么都点不了也不知道发生了什么。这里兜底强制推进到终态。
+    useEffect(() => {
+        if (!enableAnimations) {return;}
+
+        if (curtainMode === 'exit') {
+            const timer = setTimeout(() => {
+                Logger.warn('MainLayout', '闭幕动画超时未结束，强制关闭');
+                onClose();
+            }, 2500);
+            return () => clearTimeout(timer);
+        }
+
+        const timer = setTimeout(() => {
+            if (!isReadyToRender || !isContentVisible || isCurtainActive) {
+                Logger.warn('MainLayout', '开幕动画超时未结束，强制显示内容');
+                setIsReadyToRender(true);
+                setIsContentVisible(true);
+                setIsCurtainActive(false);
+            }
+        }, 2500);
+        return () => clearTimeout(timer);
+    }, [curtainMode, enableAnimations, isContentVisible, isCurtainActive, isReadyToRender, onClose]);
+
     // 拦截关闭请求，执行闭幕动画
     const handleInterceptClose = useCallback(() => {
         if (!enableAnimations) {
             onClose();
             return;
         }
+        Logger.debug('MainLayout', '收到关闭请求，播放闭幕动画');
         setCurtainMode('exit');
         setIsCurtainActive(true);
     }, [enableAnimations, onClose]);

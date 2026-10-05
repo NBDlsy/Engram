@@ -546,13 +546,31 @@ export const SummaryPanel: React.FC<SummaryPanelProps> = ({
                         />
                     </div>
 
+                    {/* 单批上限 - V1.5.2: 防止积压过多时一次性塞爆 prompt */}
+                    <div className="space-y-3">
+                        <div className="text-xs text-muted-foreground">
+                            单次最多合并 <span className="text-base font-medium text-foreground mx-0.5">{trimConfig.maxEventsPerTrim ?? 10}</span> 条
+                        </div>
+                        <SliderField
+                            min={2}
+                            max={30}
+                            step={1}
+                            value={trimConfig.maxEventsPerTrim ?? 10}
+                            onChange={(val) => handleLimitChange('maxEventsPerTrim', val)}
+                        />
+                    </div>
+
                     {/* 精简状态显示 */}
                     {trimStatus && (
                         <div className="text-xs text-muted-foreground space-y-1">
-                            <div className="flex justify-between">
-                                <span>待合并条目:</span>
-                                <span className="font-mono">{trimStatus.pendingEntryCount}</span>
-                            </div>
+                        <div className="flex justify-between">
+                            <span>待合并条目:</span>
+                            <span className="font-mono">{trimStatus.pendingEntryCount}</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span>已精简条目:</span>
+                            <span className="font-mono">{trimStatus.compressedCount ?? 0}</span>
+                        </div>
                             <div className="flex justify-between">
                                 <span>当前{trimConfig.trigger === 'token' ? 'Token' : '条目数'}:</span>
                                 <span className={`font-mono ${trimStatus.triggered ? 'text-amber-500' : ''}`}>

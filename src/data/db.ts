@@ -45,19 +45,35 @@ export class ChatDatabase extends Dexie {
             // Entities: 图谱实体 (添加 is_archived 索引)
             entities: 'id, type, name, *aliases, is_archived',
             // Meta: 状态存储 (lastSummarizedFloor 等)
-            meta: 'key'
+            meta: 'key',
         });
 
         // 注册数据变动监听钩子
         const handleChange = () => this.updateLastModified();
 
         this.events.hook('creating', handleChange);
-        this.entities.hook('updating', handleChange);
+        this.events.hook('updating', handleChange);
         this.events.hook('deleting', handleChange);
 
         this.entities.hook('creating', handleChange);
         this.entities.hook('updating', handleChange);
         this.entities.hook('deleting', handleChange);
+
+        this.meta.hook('creating', (_key, obj) => {
+            if (obj.key !== 'lastModified') {
+                handleChange();
+            }
+        });
+        this.meta.hook('updating', (_changes, _key, obj) => {
+            if (obj.key !== 'lastModified') {
+                handleChange();
+            }
+        });
+        this.meta.hook('deleting', (_key, obj) => {
+            if (obj.key !== 'lastModified') {
+                handleChange();
+            }
+        });
     }
 
     private lastUpdateTimer: any = null;
@@ -74,11 +90,13 @@ export class ChatDatabase extends Dexie {
         }
 
         // 如果已经有一个在排队了，直接跳过 (500ms 窗口防抖)
-        if (this.lastUpdateTimer) {return;}
+        if (this.lastUpdateTimer) {
+            return;
+        }
 
         this.lastUpdateTimer = setTimeout(() => {
             this.lastUpdateTimer = null;
-            
+
             // 再次检查导入状态（防止在延时期间状态变化）
             if (syncService.isImportingState) {
                 return;
@@ -116,10 +134,10 @@ export async function exportChatData(db: ChatDatabase): Promise<ChatDataDump> {
     const entities = await db.entities.toArray();
     const metaArr = await db.meta.toArray();
     const meta = metaArr.reduce((acc, cur) => ({ ...acc, [cur.key]: cur.value }), {});
-    
+
     // V1.4.6 Optimization: 将 meta 放在最前面，这样 JSON.stringify 出来的字符串中，
     // 元数据会出现在文件头部。这让 SyncService 的流式正则解析能瞬间命中并切断连接，节省 99% 的带宽喵！
-    return { entities, events, meta };
+    return { meta, events, entities };
 }
 
 /**
@@ -236,18 +254,18 @@ export async function getDatabaseStats(chatId: string): Promise<DatabaseStats> {
     try {
         // 使用单独的实例，查询完毕后迅速关闭
         const tempDb = new ChatDatabase(chatId);
-        if (!await Dexie.exists(tempDb.name)) {
-             tempDb.close();
-             return { chatId, lastUpdateTime: 0 };
+        if (!(await Dexie.exists(tempDb.name))) {
+            tempDb.close();
+            return { chatId, lastUpdateTime: 0 };
         }
-        
+
         // 快速读取 meta 设置
         const lastModifiedMeta = await tempDb.meta.get('lastModified');
         tempDb.close();
-        
+
         return {
             chatId,
-            lastUpdateTime: lastModifiedMeta ? Number(lastModifiedMeta.value) : 0
+            lastUpdateTime: lastModifiedMeta ? Number(lastModifiedMeta.value) : 0,
         };
     } catch (error) {
         Logger.error(MODULE, `Failed to get stats for chat ${chatId}`, error);

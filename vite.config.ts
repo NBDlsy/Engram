@@ -4,9 +4,14 @@ import tailwindcss from '@tailwindcss/vite';
 import mdx from '@mdx-js/rollup';
 import remarkGfm from 'remark-gfm';
 import path from 'path';
+import { readFileSync } from 'fs';
 import { execSync } from 'child_process';
 
 const commitHash = 'unknown'; // Git hash is now detected at runtime via tavern API
+
+// 构建期注入版本与构建时间：线上排障时用于确认浏览器到底加载了哪一版 bundle
+const manifest = JSON.parse(readFileSync(path.resolve(__dirname, 'manifest.json'), 'utf-8'));
+const buildTime = new Date().toISOString();
 
 export default defineConfig(({ mode }) => ({
     plugins: [
@@ -63,6 +68,8 @@ export default defineConfig(({ mode }) => ({
     define: {
         'process.env.NODE_ENV': JSON.stringify(mode),
         '__COMMIT_HASH__': JSON.stringify(commitHash),
+        '__ENGRAM_VERSION__': JSON.stringify(manifest.version ?? 'unknown'),
+        '__ENGRAM_BUILD_TIME__': JSON.stringify(buildTime),
     },
 
     resolve: {

@@ -7,6 +7,35 @@ import { useMemoryStore } from '@/state/memoryStore';
 import { notificationService } from '@/ui/services/NotificationService';
 import type { JobContext } from '../../core/JobContext';
 import type { IStep } from '../../core/Step';
+import { normalizeTrimResponse } from './trimNormalizer';
+
+/** 截断快照，便于在日志里直接看出 LLM 究竟返回了什么形状 */
+const snapshot = (value: unknown, max = 500): string => {
+    try {
+        const text = JSON.stringify(value);
+        return typeof text === 'string' && text.length > max ? `${text.slice(0, max)}…` : (text ?? String(value));
+    } catch {
+        return String(value);
+    }
+};
+
+/**
+ * V1.5.2: 判断一个对象是否「像一条事件」。
+ *
+ * 线上真实案例：模型完全无视 trim 契约，吐出
+ * `{"event": "...", "date": "...", "description": "...", "role": ..., "location": ...}`
+ * ——既没有 `events` 外壳，也没有 `meta` / `summary`，旧的 `('summary' in parsed || 'meta' in parsed)`
+ * 判定直接漏掉，于是抛「无有效的精简结果」，而内容其实完全可用。
+ * 只要命中任一事件字段就认，后续由 trimNormalizer 做别名映射。
+ */
+const EVENT_LIKE_KEYS = [
+    'summary', 'meta', 'event', 'description', 'content', 'text', 'detail',
+    'time_anchor', 'date', 'time', 'location', 'role', 'logic', 'causality'
+];
+
+const looksLikeEvent = (value: unknown): boolean =>
+    value !== null && typeof value === 'object' && !Array.isArray(value) &&
+    EVENT_LIKE_KEYS.some(key => key in (value as Record<string, unknown>));
 
 export class ApplyTrim implements IStep {
     name = 'ApplyTrim';
@@ -17,43 +46,77 @@ export class ApplyTrim implements IStep {
         }
 
         const store = useMemoryStore.getState();
-        const eventsToMerge = context.input.eventsToMerge as EventNode[];
+        const eventsToMerge = (context.input.eventsToMerge as EventNode[]) || [];
+
+        if (eventsToMerge.length === 0) {
+            throw new Error('ApplyTrim: 待合并事件为空，无法精简');
+        }
 
         // Output from ParseJson (TrimResponse structure)
         // V1.2.2: 优先从 context.parsedData 读取，对齐 ParseJson 逻辑
         const parsed = context.parsedData || context.output;
 
-        if (!parsed || !parsed.events || parsed.events.length === 0) {
+        // V1.5.2: 宽容提取事件列表。模型常见的跑偏形态:
+        //   1. 直接吐一个事件对象，忘了套 {"events": [...]} 外壳
+        //   2. 顶层就是数组 (RobustJsonParser 通常已封装，这里兜底)
+        //   3. 用了契约外的字段名（date / description 等），但内容完整可用
+        const rawEvents: unknown[] = Array.isArray(parsed?.events) && parsed.events.length > 0
+            ? parsed.events
+            : Array.isArray(parsed) && parsed.length > 0
+                ? parsed
+                : (parsed?.events && typeof parsed.events === 'object' && !Array.isArray(parsed.events))
+                    ? [parsed.events]
+                    : looksLikeEvent(parsed)
+                        ? [parsed]
+                        : [];
+
+        if (rawEvents.length === 0) {
+            const keys = parsed && typeof parsed === 'object' ? Object.keys(parsed) : typeof parsed;
+
+            // V1.5.2: 最常见的一种「不是数据问题、是模板串了」——模型吐了召回格式。
+            // 此时重试也不会变好，直接把原因说清楚，省得误判成脏数据。
+            if (Array.isArray(parsed?.recalls)) {
+                Logger.error('ApplyTrim', '精简结果不可用：模型返回的是召回格式(recalls)，说明精简模板被换成了召回模板', {
+                    keys,
+                    raw: snapshot(parsed),
+                    hint: '请在「API 预设 → 提示词模板」把「记忆精简」重置为默认'
+                });
+                throw new Error('ApplyTrim: 无有效的精简结果（模型返回召回格式，请检查精简模板）');
+            }
+
+            Logger.error('ApplyTrim', '精简结果不可用，原始输出快照', {
+                keys,
+                raw: snapshot(parsed)
+            });
             throw new Error('ApplyTrim: 无有效的精简结果');
         }
 
-        // 我们假设精简结果只包含 1 个合并后的事件 (或者 LLM 可能返回多个？EventTrimmer 取的是 0)
-        // 原逻辑: const firstParsed = parsed.events[0];
-        const firstParsed = parsed.events[0];
+        // V1.5.2: 归一化 LLM 输出，兼容 meta 缺失 / 平铺字段 / 字符串元素
+        const normalized = normalizeTrimResponse({ events: rawEvents }, eventsToMerge);
 
         // 1. 保存新的合并事件
         const newEvent = await store.saveEvent({
-            summary: parsed.events.map((e: any) => e.summary).join('\n\n'), // 如果有多个，合并 summary? 或者只取第一个
-            structured_kv: {
-                causality: 'Chain',
-                event: '精简合并',
-                location: Array.isArray(firstParsed.meta.location)
-                    ? firstParsed.meta.location as string[]
-                    : [firstParsed.meta.location].filter((x: any) => Boolean(x)),
-                logic: this.mergeArrays(eventsToMerge.map(e => e.structured_kv.logic)),
-                role: this.mergeArrays(eventsToMerge.map(e => e.structured_kv.role)),
-                time_anchor: firstParsed.meta.time_anchor || ''
-            },
-            significance_score: Math.max(...eventsToMerge.map(e => e.significance_score)),
-            level: 1,  // 标记为二层精简
-            is_embedded: false,
             is_archived: false,
+            is_embedded: false,
+            level: 1,  // 标记为二层精简
             // V1.5: 时空归一化核心，抢占它所有子节点中最老的一个时间点并再提前 1 毫秒，确立绝对统领排序位置
-            timestamp: Math.min(...eventsToMerge.map(e => e.timestamp)) - 1,
+            significance_score: Math.max(...eventsToMerge.map(e => e.significance_score ?? 0)),
             source_range: {
                 end_index: Math.max(...eventsToMerge.map(e => e.source_range?.end_index ?? 0)),
                 start_index: Math.min(...eventsToMerge.map(e => e.source_range?.start_index ?? 0))
-            }
+            },
+            structured_kv: {
+                // V1.5.2: 之前写死 'Chain' / '精简合并'，合并事件在记忆流里无法分辨，
+                // 现在优先采用 LLM 的判断，缺失时才回退到旧的固定值。
+                causality: normalized.causality || 'Chain',
+                event: normalized.event || '精简合并',
+                location: normalized.location,
+                logic: this.mergeArrays(eventsToMerge.map(e => e.structured_kv?.logic ?? [])),
+                role: this.mergeArrays(eventsToMerge.map(e => e.structured_kv?.role ?? [])),
+                time_anchor: normalized.timeAnchor
+            },
+            summary: normalized.summary,
+            timestamp: Math.min(...eventsToMerge.map(e => e.timestamp)) - 1
         });
 
         // 2. 联动嵌入 (Trim Linkage)
@@ -100,8 +163,11 @@ export class ApplyTrim implements IStep {
     private mergeArrays(arrays: string[][]): string[] {
         const set = new Set<string>();
         for (const arr of arrays) {
+            if (!Array.isArray(arr)) {continue;}
             for (const item of arr) {
-                set.add(item);
+                if (typeof item === 'string' && item.trim().length > 0) {
+                    set.add(item);
+                }
             }
         }
         return [...set];

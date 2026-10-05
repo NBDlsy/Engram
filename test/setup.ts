@@ -46,3 +46,20 @@ import 'fake-indexeddb/auto';
 };
 
 (global as any).$ = (global as any).window.$;
+
+/**
+ * 最小 document 桩。
+ * SyncService（可见性监听）、StopGeneration（DOM 查询）等模块会访问 document，
+ * 而本项目 vitest 跑在 node 环境且未装 jsdom，缺失时会产生大量无关的
+ * unhandled rejection / 告警噪音，掩盖真正的失败。这里只提供被调用到的接口。
+ */
+(global as any).document = {
+    addEventListener: vi.fn(),
+    body: { appendChild: vi.fn(), removeChild: vi.fn() },
+    createElement: vi.fn(() => ({ appendChild: vi.fn(), click: vi.fn(), style: {} })),
+    getElementById: vi.fn(() => null),
+    querySelector: vi.fn(() => null),
+    querySelectorAll: vi.fn(() => []),
+    removeEventListener: vi.fn(),
+    visibilityState: 'visible'
+};

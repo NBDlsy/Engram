@@ -1,5 +1,7 @@
 import { generateShortUUID } from '@/core/utils';
 import type { EventNode } from '@/data/types/graph';
+import { sanitizeEvents } from '@/data/utils/sanitize';
+import { Logger } from '@/core/logger';
 import { WorldInfoService } from '@/integrations/tavern';
 import type { StateCreator } from 'zustand';
 import { getCurrentDb, tryGetCurrentDb } from './coreSlice';
@@ -10,6 +12,8 @@ export interface EventState {
     importDatabase: (sourceDbName: string) => Promise<{ events: number, entities: number }>;
     getEventSummaries: (recalledIds?: string[]) => Promise<string>;
     countEventTokens: () => Promise<{ totalTokens: number; eventCount: number; activeEventCount: number }>;
+    /** V1.5.2: 已精简产物 (level>=1) 数量，走索引统计，不拉全表 */
+    countCompressedEvents: () => Promise<number>;
 
     getEventsToMerge: (keepRecentCount?: number) => Promise<EventNode[]>;
     deleteEvents: (eventIds: string[]) => Promise<void>;
@@ -168,6 +172,29 @@ export const createEventSlice: StateCreator<any, [], [], EventState> = (set, get
         }
     },
 
+    /**
+     * V1.5.2: 统计已精简产物 (level >= 1) 的数量。
+     * 走 level 索引直接 count，不去拉全部事件 —— 此前用
+     * `(await getAllEvents()).filter(e => e.level >= 1).length`，会把整表读回内存再过滤，
+     * 3000 条约 65ms 且随事件数线性增长，而它只是给 UI 显示一个数字。
+     */
+    countCompressedEvents: async () => {
+        const db = tryGetCurrentDb();
+        if (!db) {return 0;}
+
+        try {
+            return await db.events.where('level').aboveOrEqual(1).count();
+        } catch (error) {
+            Logger.warn('MemoryStore', '统计已精简条目失败，回退为全表扫描', error);
+            try {
+                const events = await db.events.toArray();
+                return events.filter(e => (e.level ?? 0) >= 1).length;
+            } catch {
+                return 0;
+            }
+        }
+    },
+
     archiveEvents: async (eventIds: string[]) => {
         if (eventIds.length === 0) {return;}
         const db = getCurrentDb();
@@ -281,7 +308,12 @@ export const createEventSlice: StateCreator<any, [], [], EventState> = (set, get
         if (!db) {return [];}
 
         try {
-            return await db.events.orderBy('timestamp').toArray();
+            const rows = await db.events.orderBy('timestamp').toArray();
+            // V1.5.2: 读取即净化。库里存在 event 写成数字、role 写成字符串等脏数据，
+            // 直接交给 UI 会在搜索/渲染时抛 TypeError 导致整块白屏。
+            return sanitizeEvents(rows, (bad, reason) =>
+                Logger.warn('MemoryStore', `读取事件时丢弃不可用记录 (${reason})`, { bad })
+            );
         } catch (error) {
             console.error('[MemoryStore] Failed to get all events:', error);
             return [];
@@ -326,15 +358,28 @@ export const createEventSlice: StateCreator<any, [], [], EventState> = (set, get
             archivedEvents.sort((a, b) => a.timestamp - b.timestamp);
 
             // 构建极简 XML record（仅使用 structured_kv，不含 summary 长文本）
-            const escapeXml = (s: string) => s.replaceAll(/&/g, '&amp;').replaceAll(/"/g, '&quot;').replaceAll(/</g, '&lt;').replaceAll(/>/g, '&gt;');
+            // V1.5.2: 字段可能被写成数字/数组/对象，直接 replaceAll 会抛
+            // "e.replaceAll is not a function"，导致整个索引构建失败
+            const escapeXml = (s: unknown) => String(s ?? '').replaceAll(/&/g, '&amp;').replaceAll(/"/g, '&quot;').replaceAll(/</g, '&lt;').replaceAll(/>/g, '&gt;');
+
+            // V1.5.2: 列表字段可能是数组、字符串或其它脏值，逐个容错
+            const listAttr = (name: string, value: unknown): string => {
+                if (value === null || value === undefined || value === '') {return '';}
+                const text = Array.isArray(value)
+                    ? value.filter(v => v !== null && v !== undefined).join(', ')
+                    : String(value);
+                return text ? `${name}="${escapeXml(text)}"` : '';
+            };
 
             const buildRecord = (e: EventNode, extraAttrs?: string) => {
-                const kv = e.structured_kv;
+                const kv = e.structured_kv ?? {} as EventNode['structured_kv'];
                 const attrs = [
                     `id="${e.id}"`,
-                    `event="${escapeXml(kv?.event || '')}"`,
-                    kv?.role?.length ? `role="${escapeXml(kv.role.join(', '))}"` : '',
-                    kv?.location?.length ? `location="${escapeXml(kv.location.join(', '))}"` : '',
+                    `event="${escapeXml(kv?.event ?? '')}"`,
+                    // V1.5.2: 时间锚点，让召回裁判能按时间远近判断相关性
+                    kv?.time_anchor ? `time_anchor="${escapeXml(kv.time_anchor)}"` : '',
+                    listAttr('role', kv?.role),
+                    listAttr('location', kv?.location),
                     kv?.causality ? `causality="${escapeXml(kv.causality)}"` : '',
                     extraAttrs || '',
                 ].filter(Boolean).join(' ');

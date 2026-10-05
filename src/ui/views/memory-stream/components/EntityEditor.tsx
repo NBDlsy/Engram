@@ -7,6 +7,7 @@
  * 3. 自动同步/手动修改 Description (YAML from Profile)
  */
 import type { EntityNode, EntityType } from '@/data/types/graph';
+import { toList, toText } from '@/data/utils/sanitize';
 import { Divider } from '@/ui/components/layout/Divider';
 import { useResponsive } from '@/ui/hooks/useResponsive';
 import yaml from 'js-yaml'; // 需要确认项目是否已安装 js-yaml，如果没有则需要简单实现或引入
@@ -101,10 +102,11 @@ export const EntityEditor = ({
     // Load data
     useEffect(() => {
         if (entity && entity.id !== lastEntityId) {
-            setName(entity.name);
-            setType(entity.type);
-            setAliases(entity.aliases ? entity.aliases.join(', ') : '');
-            setDescription(entity.description || '');
+            // V1.5.2: 走净化层，避免非字符串字段让编辑器打开即崩
+            setName(toText(entity.name));
+            setType(toText(entity.type) as EntityType);
+            setAliases(toList(entity.aliases).join(', '));
+            setDescription(toText(entity.description));
             setProfileJson(JSON.stringify(entity.profile || {}, null, 2));
             setJsonError(null);
             setIsDirty(false);

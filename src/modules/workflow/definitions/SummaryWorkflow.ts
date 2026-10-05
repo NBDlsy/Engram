@@ -1,3 +1,4 @@
+import { LogModule } from '@/core/logger';
 import type { WorkflowDefinition } from '../core/WorkflowEngine';
 import {
     BuildPrompt,
@@ -10,6 +11,7 @@ import {
 } from '../steps';
 
 export const createSummaryWorkflow = (): WorkflowDefinition => ({
+    logModule: LogModule.MEMORY_SUMMARY,
     name: 'SummaryWorkflow',
     steps: [
         new StopGeneration(),

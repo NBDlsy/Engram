@@ -6,6 +6,12 @@ import type { IStep, StepResult } from './Step';
 export interface WorkflowDefinition {
     name: string;
     steps: IStep[];
+    /**
+     * 该工作流的日志归属模块。
+     * V1.5.2: 不传则回退到 RAG_INJECT（历史行为），
+     * 精简/总结等工作流应显式指定，避免日志全被记成 RAG/Inject。
+     */
+    logModule?: LogModule;
 }
 
 /**
@@ -19,7 +25,8 @@ export class WorkflowEngine {
      */
     private static async executeWithRetry(
         step: IStep,
-        context: JobContext
+        context: JobContext,
+        logModule: LogModule = LogModule.RAG_INJECT
     ): Promise<StepResult> {
         const retryConfig = step.retry;
         
@@ -47,7 +54,7 @@ export class WorkflowEngine {
                     throw error; // 不满足重试条件，或次数耗尽，向上抛出
                 }
 
-                Logger.warn(LogModule.RAG_INJECT, `[Retry] Step ${step.name} failed (${attempt}/${retryConfig.maxAttempts}), retrying in ${delay}ms...`, {
+                Logger.warn(logModule, `[Retry] Step ${step.name} failed (${attempt}/${retryConfig.maxAttempts}), retrying in ${delay}ms...`, {
                     error: error instanceof Error ? error.message : String(error)
                 });
 
@@ -78,6 +85,7 @@ export class WorkflowEngine {
         initialContext: Partial<JobContext>
     ): Promise<JobContext> {
         const startTime = Date.now();
+        const logModule = workflow.logModule || LogModule.RAG_INJECT;
 
         // 1. 初始化完整 Context
         const context: JobContext = {
@@ -93,7 +101,7 @@ export class WorkflowEngine {
             trigger: initialContext.trigger || 'manual'
         };
 
-        Logger.info(LogModule.RAG_INJECT, `开始执行工作流: ${workflow.name}`, {
+        Logger.info(logModule, `开始执行工作流: ${workflow.name}`, {
             jobId: context.id,
             trigger: context.trigger
         });
@@ -113,7 +121,7 @@ export class WorkflowEngine {
             for (let i = 0; i < workflow.steps.length; i++) {
                 // 取消检查点：每个 Step 执行前检查信号
                 if (context.signal && context.signal.cancelled) {
-                    Logger.warn(LogModule.RAG_INJECT, '工作流被中途取消', { jobId: context.id });
+                    Logger.warn(logModule, '工作流被中途取消', { jobId: context.id });
                     break;
                 }
 
@@ -121,20 +129,20 @@ export class WorkflowEngine {
                 currentStepName = step.name;
                 context.metadata.currentStep = currentStepName;
 
-                Logger.debug(LogModule.RAG_INJECT, `执行步骤: ${step.name}`, { jobId: context.id });
+                Logger.debug(logModule, `执行步骤: ${step.name}`, { jobId: context.id });
 
                 const stepStart = Date.now();
                 try {
-                    const result = await this.executeWithRetry(step, context);
+                    const result = await this.executeWithRetry(step, context, logModule);
                     const duration = Date.now() - stepStart;
 
                     context.metadata.stepsExecuted.push(step.name);
-                    Logger.debug(LogModule.RAG_INJECT, `步骤完成: ${step.name}`, { duration });
+                    Logger.debug(logModule, `步骤完成: ${step.name}`, { duration });
 
                     // 处理控制流
                     if (result) {
                         if (result.action === 'finish') {
-                            Logger.debug(LogModule.RAG_INJECT, `工作流提前结束: ${step.name}`, { reason: 'Step requested finish' });
+                            Logger.debug(logModule, `工作流提前结束: ${step.name}`, { reason: 'Step requested finish' });
                             break;
                         }
 
@@ -154,7 +162,7 @@ export class WorkflowEngine {
                                 throw new Error(`Workflow detected infinite loop: jumped 50 times. Last jump: ${step.name} -> ${result.targetStep}`);
                             }
 
-                            Logger.debug(LogModule.RAG_INJECT, `跳转步骤: ${step.name} -> ${result.targetStep}`, {
+                            Logger.debug(logModule, `跳转步骤: ${step.name} -> ${result.targetStep}`, {
                                 jumpCount: context.metadata.jumpCount,
                                 reason: result.reason
                             });
@@ -164,13 +172,13 @@ export class WorkflowEngine {
                     }
                 } catch (stepError) {
                     if (step.ignoreFailure) {
-                        Logger.warn(LogModule.RAG_INJECT, `步骤执行彻底失败，但配置了忽略错误，继续流转: ${step.name}`, {
+                        Logger.warn(logModule, `步骤执行彻底失败，但配置了忽略错误，继续流转: ${step.name}`, {
                             error: stepError instanceof Error ? stepError.message : String(stepError)
                         });
                         continue;
                     }
 
-                    Logger.error(LogModule.RAG_INJECT, `步骤执行崩溃: ${step.name}`, {
+                    Logger.error(logModule, `步骤执行崩溃: ${step.name}`, {
                         error: stepError instanceof Error ? stepError.message : String(stepError),
                         stack: stepError instanceof Error ? stepError.stack : undefined
                     });
@@ -178,7 +186,7 @@ export class WorkflowEngine {
                 }
             }
 
-            Logger.debug(LogModule.RAG_INJECT, `工作流执行成功: ${workflow.name}`, {
+            Logger.debug(logModule, `工作流执行成功: ${workflow.name}`, {
                 duration: Date.now() - startTime,
                 jobId: context.id,
                 steps: context.metadata.stepsExecuted.length
@@ -189,7 +197,7 @@ export class WorkflowEngine {
             context.metadata.error = error instanceof Error ? error : new Error(String(error));
             
             if (isCancelled) {
-                Logger.info(LogModule.RAG_INJECT, `工作流已由用户取消: ${workflow.name}`, {
+                Logger.info(logModule, `工作流已由用户取消: ${workflow.name}`, {
                     jobId: context.id,
                     step: context.metadata.currentStep || currentStepName
                 });
@@ -199,7 +207,7 @@ export class WorkflowEngine {
                 throw abortError;
             }
 
-            Logger.error(LogModule.RAG_INJECT, `工作流执行异常: ${workflow.name}`, {
+            Logger.error(logModule, `工作流执行异常: ${workflow.name}`, {
                 jobId: context.id,
                 // P0 Fix: 优先记录正在执行的 step，避免误报上一个成功 step
                 step: context.metadata.currentStep || currentStepName || context.metadata.stepsExecuted.at(-1),

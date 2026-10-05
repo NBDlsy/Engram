@@ -1,4 +1,5 @@
 import React, { Suspense, lazy, useEffect, useState } from 'react';
+import { ErrorBoundary } from '@/ui/components/core/ErrorBoundary';
 import { MainLayout } from '@/ui/components/layout/MainLayout';
 import { WelcomeAnimation } from '@/ui/components/visual/WelcomeAnimation';
 import { SettingsManager } from '@/config/settings';
@@ -161,9 +162,13 @@ const App: React.FC<AppProps> = ({ onClose }) => {
             )}
 
             <MainLayout activeTab={activeTab} setActiveTab={handleNavigate} onClose={onClose}>
-                <Suspense fallback={<LoadingFallback />}>
-                    {renderContent()}
-                </Suspense>
+                {/* V1.5.2: 任何视图的渲染异常都不该让整棵树卸载（表现为界面透明、无法操作），
+                    兜底成一条可读的错误提示，用户还能继续切换标签页 */}
+                <ErrorBoundary>
+                    <Suspense fallback={<LoadingFallback />}>
+                        {renderContent()}
+                    </Suspense>
+                </ErrorBoundary>
             </MainLayout>
         </>
     );

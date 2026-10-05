@@ -1,4 +1,4 @@
-import { getBuiltInTemplateByCategory } from '@/config/types/defaults';
+import { getBuiltInTemplateByCategory, getBuiltInTemplateById } from '@/config/types/defaults';
 import { Logger } from '@/core/logger';
 import { PromptLoader } from '@/integrations/llm/PromptLoader';
 import { getCurrentChatId } from '@/integrations/tavern';
@@ -71,6 +71,40 @@ export class BuildPrompt implements IStep {
         if (!template) {
             throw new Error(`BuildPrompt: 未找到可用模板 (ID: ${templateId}, Category: ${category})`);
         }
+
+        // V1.5.2: 精简契约守卫。
+        // 线上案例: 设置里 id=builtin_trim 的模板被换成了召回模板的内容，
+        // 于是精简请求拿到的 prompt 要求模型输出 {"recalls":[{id,date,score,reason}]}，
+        // ParseJson 正常通过、ApplyTrim 才报「无有效的精简结果」——现象像脏数据，实则是模板串了。
+        // 这里在**发请求之前**识别并回退内置模板，避免烧一次 token 还拿到废结果。
+        const isTrimRequest = templateId === 'builtin_trim' || category === 'trim' || category === 'trimming';
+        if (isTrimRequest) {
+            const contract = `${template.systemPrompt ?? ''}${template.userPromptTemplate ?? ''}`;
+            const asksForRecalls = /recalls\s*["'`]?\s*:/.test(contract) || contract.includes('{{engramIndex}}');
+            const asksForTrim = contract.includes('"events"') || contract.includes('meta');
+
+            if (asksForRecalls && !asksForTrim) {
+                const builtin = getBuiltInTemplateById('builtin_trim');
+                if (builtin) {
+                    Logger.error('BuildPrompt', '精简模板内容异常（疑似被替换成召回模板），已回退内置版本。请在「API 预设 → 提示词模板」把「记忆精简」重置为默认。', {
+                        templateId: template.id,
+                        templateName: template.name,
+                        head: contract.slice(0, 120)
+                    });
+                    template = builtin;
+                }
+            }
+        }
+
+        // V1.5.2: 记录实际解析到的模板。模板被用户覆盖后出问题，之前只能靠猜。
+        Logger.debug('BuildPrompt', '使用模板', {
+            category: template.category,
+            isBuiltIn: Boolean(template.isBuiltIn),
+            requestedCategory: category ?? null,
+            requestedId: templateId ?? null,
+            templateId: template.id,
+            templateName: template.name
+        });
 
         // 2. 准备变量
         // 合并 Context input 中的数据作为潜在变量
@@ -158,6 +192,20 @@ export class BuildPrompt implements IStep {
             if (value !== undefined && value !== null) {
                 systemPrompt = systemPrompt.split(key).join(value);
                 userPrompt = userPrompt.split(key).join(value);
+            }
+        }
+
+        // V1.5.2: 召回模板自愈。
+        // Agentic 召回依赖模型输出真实事件 ID，而只有 {{engramIndex}} 提供 id="evt_xxx"。
+        // 用户在设置里改过模板（换成 engramSummaries 等纯摘要宏）后，模型看不到 ID，
+        // agenticSearch 会全部落空。这里检测并补挂索引，避免"改了提示词就悄悄失效"。
+        if (template.id === 'builtin_agentic_recall' || category === 'preprocessing') {
+            const assembled = `${systemPrompt}${userPrompt}`;
+            if (!assembled.includes('{{engramIndex}}')) {
+                userPrompt += '\n\n【历史档案目录（每条 record 带 id，必须原样输出其 id 属性）】\n{{engramIndex}}\n';
+                Logger.warn('BuildPrompt', '召回模板未使用 {{engramIndex}}，已自动补挂索引', {
+                    templateId: template.id
+                });
             }
         }
 

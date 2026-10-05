@@ -7,6 +7,7 @@
  * - 移动端：全屏详情
  */
 
+import { toText } from '@/data/utils/sanitize';
 import { RecallLogService } from '@/core/logger/RecallLogger';
 import { motion } from 'framer-motion';
 import {
@@ -222,7 +223,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ entry, isFullScreen, onClose 
         // 搜索过滤
         if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase();
-            results = results.filter(r => r.summary.toLowerCase().includes(q));
+            results = results.filter(r => toText(r.summary).toLowerCase().includes(q));
         }
 
         // 按视图模式过滤

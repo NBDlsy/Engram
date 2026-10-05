@@ -35,8 +35,10 @@ export class SaveEvent implements IStep {
                 if (parsed && parsed.events) {
                     eventsToSave = parsed.events;
                 }
-            } catch {
-                throw new Error('SaveEvent: 无法解析 JSON 事件数据', { cause: e });
+            } catch (error) {
+                // V1.5.2: 原写法 `catch {` 未绑定变量却引用 `e`，解析失败时会抛
+                // ReferenceError 掩盖真实原因。补上 catch 绑定。
+                throw new Error('SaveEvent: 无法解析 JSON 事件数据', { cause: error });
             }
         }
 

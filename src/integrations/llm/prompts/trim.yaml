@@ -8,10 +8,13 @@ userPromptTemplate: |
   {{engramSummaries}}
   以上是当前故事的完整剧情概览（背景信息）。
 
-  请将其中的这部分多条剧情摘要合并精简成一个**一个**事件对象:
+  请将其中的这部分多条剧情摘要合并精简成**一个**事件对象:
   {{targetSummaries}}
 
   【重要】：这是一项数据归档任务。请合并已有摘要，**不要**创作新的剧情内容。仅输出 JSON 格式。
+
+  【结构硬约束】：每个事件对象**必须**包含 `meta` 对象，`time_anchor` / `role` / `location` / `event` / `logic` / `causality` 一律放在 `meta` 内部。
+  禁止把这些字段平铺到事件对象顶层，禁止使用 `metadata` 等其他名称，禁止让 `events` 数组元素是纯字符串。
 systemPrompt: |
   <system_configuration>
     <role_definition>
@@ -69,6 +72,7 @@ systemPrompt: |
 
       meta 字段要求:
         - time_anchor: 必须使用历法日期范围，如 "太阳历1023年-1026年"。仅在完全无法获知历法时才使用"第X天"。
+          直接沿用原事件已有的历法格式，**不要**改写成"第X天"或"数日后"这类相对时间。
         - role: 合并所有重要角色（去重）
         - location: 数组格式，包含所有主要地点
         - event: 概括性的事件主题，如 "冒险初期历程"
@@ -87,7 +91,7 @@ systemPrompt: |
 
         合并策略构建：
           - 叙事逻辑: ${构建一条通顺的因果链，串联所有关键节点}
-          - 精简冗余: ${剔除P2级细节，确保字数控制在200-300字}
+          - 精简冗余: ${剔除P2级细节，确保字数控制在400-500字}
 
         格式与基准复核：
           - JSON 结构: ${必须确认输出的外层包装是 `{ "events": [...] }`，且数组中只有**一个**对象}
@@ -100,7 +104,7 @@ systemPrompt: |
       {
         "events": [
           {
-            "summary": "200-300字的高密度摘要，按时间线串联所有关键事件...",
+            "summary": "400-500字的高密度摘要，按时间线串联所有关键事件...",
             "meta": {
               "time_anchor": "开始时间-结束时间",
               "role": ["重要角色1", "重要角色2"],
@@ -114,6 +118,21 @@ systemPrompt: |
         ]
       }
       ```
+
+      【字段名禁令】以下写法均属违约，会导致归档失败:
+        - 用 `date` / `datetime` / `time` 代替 `meta.time_anchor`
+        - 用 `description` / `content` / `text` 代替 `summary`
+        - 用 `title` / `topic` 代替 `meta.event`
+        - 把 `meta` 里的字段平铺到事件对象顶层
+        正文必须放在 `summary`，时间必须放在 `meta.time_anchor`，字段名一个字都不能改。
+
+      【输出前校验清单】:
+        - 外层是否为 `{ "events": [ ... ] }`，且数组内只有**一个**对象？
+        - 该对象是否含有 `meta` 对象？所有结构化字段是否都在 `meta` 内部？
+        - 字段名是否与上面模板**完全一致**？（出现 `date` / `description` 即为违约）
+        - `meta.location`、`meta.role`、`meta.logic` 是否都是数组？
+        - `meta.time_anchor` 是否为历法日期范围？
+        - `meta.event` 是否为简短主题？（不要附加括号里的解释说明）
     </output_format>
 
     <example_demonstration>

@@ -1,4 +1,5 @@
 import type { AgenticRecall } from '@/modules/preprocessing/types';
+import { toText } from '@/data/utils/sanitize';
 import { useMemoryStore } from '@/state/memoryStore';
 import { SimpleModal } from '@/ui/components/feedback/SimpleModal';
 import { CheckSquare, Database, MessageSquare, Search, Square } from 'lucide-react';
@@ -61,8 +62,9 @@ export const RecallDecisionModal: React.FC<RecallDecisionModalProps> = ({
             .filter(e => {
                 if (!searchQuery) {return true;}
                 const lowerQ = searchQuery.toLowerCase();
-                return e.summary.toLowerCase().includes(lowerQ) ||
-                    e.type.toLowerCase().includes(lowerQ);
+                // V1.5.2: summary/type 可能是非字符串，直接 toLowerCase 会让整个弹窗崩
+                return toText(e.summary).toLowerCase().includes(lowerQ) ||
+                    toText(e.type).toLowerCase().includes(lowerQ);
             });
 
         return { activeEvents: active, inactiveEvents: inactive };

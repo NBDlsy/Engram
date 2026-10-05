@@ -41,6 +41,12 @@ interface TrimResponse {
  * 精简状态
  */
 export interface TrimmerStatus {
+    /**
+     * V1.5.2: 已精简产物 (level>=1) 的数量。
+     * 这类事件不会被再次合并、不计入触发阈值，却始终出现在注入的摘要里，
+     * 会随时间累积。暴露出来便于观察长期增长。
+     */
+    compressedCount: number;
     triggered: boolean;
     triggerType: 'token' | 'count';
     currentValue: number;
@@ -53,18 +59,26 @@ export interface TrimmerStatus {
  * EventTrimmer 类
  */
 class EventTrimmer {
-    private config: TrimConfig;
+    /**
+     * V1.5.2: 仅保存"显式设置过的"配置项。
+     *
+     * 此前这里缓存的是一份**完整**配置，并在 getEffectiveConfig 里以高于
+     * getStoredConfig() 的优先级展开，导致初始化之后持久化设置被永久遮蔽
+     * （SettingsManager 里的改动读不到）。改为只累积 override 后，
+     * 合并顺序变为: 默认值 < 持久化设置 < 实例 override < 调用参数。
+     */
+    private overrides: Partial<TrimConfig> = {};
     private isTrimming = false;
 
     constructor(config?: Partial<TrimConfig>) {
-        this.config = this.getEffectiveConfig(config);
+        this.overrides = { ...config };
     }
 
     /**
      * 更新配置
      */
     updateConfig(config: Partial<TrimConfig>): void {
-        this.config = this.getEffectiveConfig(config);
+        this.overrides = { ...this.overrides, ...config };
     }
 
     private getStoredConfig(): Partial<TrimConfig> {
@@ -75,7 +89,7 @@ class EventTrimmer {
         return {
             ...DEFAULT_TRIM_CONFIG,
             ...this.getStoredConfig(),
-            ...this.config,
+            ...this.overrides,
             ...override,
         };
     }
@@ -118,9 +132,13 @@ class EventTrimmer {
             const context = await WorkflowEngine.run(createTrimmerWorkflow(), {
                 config: {
                     keepRecentCount: config.keepRecentCount,
+                    // V1.5.2: 单次合并上限，防止积压过多时 prompt 过长
+                    maxEventsPerTrim: config.maxEventsPerTrim,
                     previewEnabled: (SettingsManager.get('globalPreviewEnabled') ?? true) && (config.previewEnabled ?? true),
                     templateId: 'builtin_trim', // Hardcoded for now, matches BuildPrompt category mapping potentially
-                    logType: 'trimming'
+                    // V1.5.2: 正确值是 'trim'。'trimming' 不在 ModelLogEntry['type'] 里，
+                    // 会让模型日志视图取不到样式配置而崩溃（读 undefined.color）。
+                    logType: 'trim'
                 },
                 trigger: manual ? 'manual' : 'auto'
             });
@@ -191,7 +209,13 @@ class EventTrimmer {
         const pendingEntryCount = eventsToMerge.length;
         triggered = triggered && pendingEntryCount >= 2;
 
+        // V1.5.2: 已精简产物数量 (level>=1)。这类事件不会被再次合并、也不计入触发阈值，
+        // 但会一直出现在注入的摘要里，长期只增不减，这里暴露出来供 UI 观察。
+        // V1.5.2: 走 level 索引 count，不再 getAllEvents() 拉全表再过滤（每轮省 ~65ms @3000 条）。
+        const compressedCount = await store.countCompressedEvents();
+
         Logger.debug(LogModule.MEMORY_TRIM, '精简状态检查', {
+            compressedCount,
             currentValue,
             enabled: config.enabled,
             keepRecentCount: config.keepRecentCount,
@@ -202,6 +226,7 @@ class EventTrimmer {
         });
 
         return {
+            compressedCount,
             currentValue,
             isTrimming: this.isTrimming,
             pendingEntryCount,
