@@ -4,17 +4,16 @@ import { llmAdapter } from '@/integrations/llm/Adapter';
 import { ModelLogger } from '@/core/logger/ModelLogger';
 import { getCurrentCharacter, getCurrentModel } from '@/integrations/tavern';
 import { Logger } from '@/core/logger';
-import { SettingsManager } from '@/config/settings';
 
 export class LlmRequest implements IStep {
     name = 'LlmRequest';
 
     get retry(): RetryConfig {
-        const apiSettings = SettingsManager.get('apiSettings') as any;
-        const presets = apiSettings?.llmPresets || [];
-        const activePresetId = apiSettings?.activeLLMPresetId;
-        const activePreset = presets.find((p: any) => p.id === activePresetId) || presets[0];
-        const customConfig = activePreset?.retryConfig;
+        return this.getRetry();
+    }
+
+    getRetry(context?: JobContext): RetryConfig {
+        const customConfig = llmAdapter.resolvePreset(context?.prompt?.presetId)?.retryConfig;
         
         return {
             backoff: 'exponential',
@@ -22,11 +21,20 @@ export class LlmRequest implements IStep {
             maxAttempts: customConfig?.maxAttempts ?? 3,
             retryIf: (error: any) => {
                 const msg = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+                if (error?.isCancellation || msg === 'usercancelled' || error?.name === 'AbortError') {
+                    return false;
+                }
+                if (/^(?:http\s+)?400\b|^bad request\b/.test(msg)) {
+                    return false;
+                }
                 return msg.includes('429') ||
+                       /^(?:http\s+)?409\b|^conflict\b/.test(msg) ||
                        msg.includes('rate limit') ||
                        msg.includes('timeout') ||
                        msg.includes('network') ||
-                       msg.includes('failed to fetch');
+                       msg.includes('failed to fetch') ||
+                       msg.includes('空响应') ||
+                       msg.includes('empty response');
             }
         };
     }
@@ -63,6 +71,10 @@ export class LlmRequest implements IStep {
                 internal: true, // 标记为内部请求，防止触发 Preprocessor
             });
 
+            if (!response.success) {
+                throw new Error(response.error || 'LLM Generation Failed');
+            }
+
             // 3. 记录接收日志
             ModelLogger.logReceive(logId, {
                 duration: Date.now() - startTime,
@@ -70,10 +82,6 @@ export class LlmRequest implements IStep {
                 response: response.content,
                 status: response.success ? 'success' : 'error',
             });
-
-            if (!response.success) {
-                throw new Error(response.error || 'LLM Generation Failed');
-            }
 
             // 4. 保存结果
             context.llmResponse = {

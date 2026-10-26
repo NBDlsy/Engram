@@ -10,6 +10,7 @@ import { WorkflowEngine } from '@/modules/workflow/core/WorkflowEngine';
 // Mock Dependencies
 vi.mock('@/integrations/llm/Adapter', () => ({
     llmAdapter: {
+        resolvePreset: vi.fn(),
         generate: vi.fn(),
         generateRaw: vi.fn()
     }

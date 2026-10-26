@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/integrations/llm/Adapter', () => ({
     llmAdapter: {
+        resolvePreset: vi.fn(),
         generate: vi.fn(),
         generateRaw: vi.fn()
     }

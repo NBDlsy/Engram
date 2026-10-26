@@ -42,6 +42,8 @@ export interface IStep {
     /** 重试配置 (可选，WorkflowEngine 据此执行重试控制) */
     retry?: RetryConfig;
 
+    getRetry?(context: JobContext): RetryConfig;
+
     /** 彻底失败后是否忽略错误继续执行工作流 (可选) */
     ignoreFailure?: boolean;
 

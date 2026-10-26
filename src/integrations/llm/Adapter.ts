@@ -116,8 +116,16 @@ class LLMAdapter {
     /**
      * 执行单个请求
      */
+    resolvePreset(presetId?: string): LLMPreset | undefined {
+        const { apiSettings } = SettingsManager.getSettings();
+        const presets = apiSettings?.llmPresets ?? [];
+        return presets.find(preset => preset.id === presetId)
+            ?? presets.find(preset => preset.id === apiSettings?.selectedPresetId);
+    }
+
     private async executeRequest(request: LLMRequest): Promise<LLMResponse> {
         const helper = getTavernHelper();
+        let preset: LLMPreset | undefined;
 
         if (!helper?.generateRaw && !helper?.generate) {
             return {
@@ -129,16 +137,7 @@ class LLMAdapter {
 
         try {
             // 获取预设配置
-            const settings = SettingsManager.getSettings();
-            let preset: LLMPreset | undefined;
-
-            if (request.presetId) {
-                preset = settings.apiSettings?.llmPresets?.find(p => p.id === request.presetId);
-            }
-
-            if (!preset && settings.apiSettings?.selectedPresetId) {
-                preset = settings.apiSettings?.llmPresets?.find(p => p.id === settings.apiSettings?.selectedPresetId);
-            }
+            preset = this.resolvePreset(request.presetId);
 
             // 统一提取预设中的参数配置
             const customApiConfig = preset ? this.extractPresetParameters(preset) : undefined;
@@ -147,11 +146,29 @@ class LLMAdapter {
 
         } catch (error) {
             const errorMsg = error instanceof Error ? error.message : String(error);
-            Logger.error(MODULE, '调用失败', error);
+            let hint = '';
+            if (/^(?:HTTP\s+)?409\b|^Conflict$/i.test(errorMsg)) {
+                hint = '；接口报告请求冲突，可能是并发限制或服务端状态冲突，请查看酒馆服务端日志确认';
+            } else if (/^(?:HTTP\s+)?400\b|^Bad Request$/i.test(errorMsg)) {
+                hint = '；接口拒绝请求，请核对模型、API 协议、采样参数与 Token 限额，并查看酒馆服务端的完整错误响应';
+            }
+            Logger.error(MODULE, '调用失败', {
+                error: errorMsg,
+                requestedPresetId: request.presetId ?? null,
+                presetId: preset?.id ?? null,
+                source: preset?.source ?? 'tavern',
+                configuredApiSource: preset?.custom?.apiSource,
+                effectiveApiSource: preset?.source === 'custom' ? 'openai' : 'tavern',
+                model: preset?.source === 'custom' ? preset.custom?.model : preset?.modelOverride,
+                stream: preset?.stream ?? false,
+                parameters: preset?.parameters,
+                systemPromptLength: request.systemPrompt?.length ?? 0,
+                userPromptLength: request.userPrompt?.length ?? 0,
+            });
 
             return {
                 content: '',
-                error: errorMsg,
+                error: errorMsg + hint,
                 success: false,
             };
         }
@@ -224,10 +241,7 @@ class LLMAdapter {
 
         // V1.5 获取此请求所用的 Preset (由 executeRequest 传递进来，或者回退到默认)
         if (!currentPreset) {
-            const settings = SettingsManager.getSettings();
-            currentPreset = request.presetId
-                ? settings.apiSettings?.llmPresets?.find(p => p.id === request.presetId)
-                : settings.apiSettings?.llmPresets?.find(p => p.id === settings.apiSettings?.selectedPresetId);
+            currentPreset = this.resolvePreset(request.presetId);
         }
 
         const generationOptions = {
@@ -267,14 +281,23 @@ class LLMAdapter {
             throw new Error('无可用的生成 API');
         }
 
+        // 空响应不是成功：部分端点/模型会在错误或限流时静默返回空字符串。
+        // 如果继续标记 success，调用方只会拿到一个没有任何上下文的空内容，
+        // 最终在 ParseJson 处报“无 LLM 响应内容”，无法触发重试也无法定位预设。
+        const normalizedContent = typeof content === 'string' ? content : '';
+        if (!normalizedContent.trim()) {
+            const presetLabel = currentPreset?.name ? `，预设：${currentPreset.name}` : '';
+            throw new Error(`LLM 返回空响应（未返回任何内容${presetLabel}）`);
+        }
+
         // --- 全局数据遥测 (Telemetry) ---
         SettingsManager.incrementStatistic('totalLlmCalls', 1);
         const estimatedPromptTokens = this.estimateTokens(finalSystemPrompt + finalUserPrompt);
-        const estimatedCompletionTokens = this.estimateTokens(content || '');
+        const estimatedCompletionTokens = this.estimateTokens(normalizedContent);
         SettingsManager.incrementStatistic('totalTokens', estimatedPromptTokens + estimatedCompletionTokens);
 
         return {
-            content: content || '',
+            content: normalizedContent,
             success: true,
             tokenUsage: {
                 completion: estimatedCompletionTokens,

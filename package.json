@@ -1,6 +1,6 @@
 {
     "name": "engram",
-    "version": "1.4.12",
+    "version": "1.5.3",
     "description": "Graph RAG 记忆操作系统 for SillyTavern",
     "type": "module",
     "main": "src/index.tsx",

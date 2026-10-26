@@ -28,7 +28,7 @@ export class WorkflowEngine {
         context: JobContext,
         logModule: LogModule = LogModule.RAG_INJECT
     ): Promise<StepResult> {
-        const retryConfig = step.retry;
+        const retryConfig = step.getRetry?.(context) ?? step.retry;
         
         // 如果没有配置重试，或者设定 maxAttempts <= 1，直接执行
         if (!retryConfig || retryConfig.maxAttempts <= 1) {
