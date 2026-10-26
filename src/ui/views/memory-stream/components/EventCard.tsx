@@ -6,7 +6,6 @@
  * 文本层级：heading(标题) → foreground(正文) → meta(元数据)
  */
 import type { EventNode } from '@/data/types/graph';
-import { toList, toText } from '@/data/utils/sanitize';
 import { Archive, ChevronRight, Lock, LockOpen, Trash2, Zap } from 'lucide-react';
 import React from 'react';
 
@@ -71,25 +70,23 @@ function EmbeddingBadge({ isEmbedded }: { isEmbedded: boolean }) {
  * 提取元数据行
  */
 function MetaLine({ event }: { event: EventNode }) {
-    // V1.5.2: 老数据 / 导入事件可能没有 structured_kv，裸读会让整张卡片渲染失败
-    const kv = event.structured_kv ?? {} as EventNode['structured_kv'];
-    // V1.5.2: role / location 可能被写成字符串，`.length > 0` 通过但 `.join` 不存在会直接崩整块视图
-    const roles = toList(kv.role);
-    const locStr = toList(kv.location).join(', ');
-    const timeStr = toText(kv.time_anchor);
+    const kv = event.structured_kv;
+    // 不再合并为一个字符串，而是保留语义信息单独渲染
+    const hasData = kv.time_anchor || kv.location || (kv.role && kv.role.length > 0);
+    if (!hasData) {return null;}
 
-    if (!timeStr && !locStr && roles.length === 0) {return null;}
+    const locStr = Array.isArray(kv.location) ? kv.location.join(', ') : String(kv.location || '');
 
     return (
         <div className="flex flex-wrap items-center gap-1.5 text-xs truncate">
-            {timeStr && (
-                <span className="text-value">({timeStr})</span>
+            {kv.time_anchor && (
+                <span className="text-value">({kv.time_anchor})</span>
             )}
             {locStr && (
                 <span className="text-value">@{locStr}</span>
             )}
-            {roles.length > 0 && (
-                <span className="text-emphasis">[{roles.join(', ')}]</span>
+            {kv.role && kv.role.length > 0 && (
+                <span className="text-emphasis">[{kv.role.join(', ')}]</span>
             )}
         </div>
     );
@@ -110,19 +107,14 @@ export const EventCard: React.FC<EventCardProps> = ({
     className = '',
 }) => {
     const isLocked = event.is_locked;
-    const kv = event.structured_kv ?? {} as EventNode['structured_kv'];
-    // V1.5.2: 老数据可能没有 significance_score，直接 toFixed 会让整张卡片渲染失败
-    const score = typeof event.significance_score === 'number' ? event.significance_score : 0;
+    const kv = event.structured_kv;
 
     // 提取纯文本（去掉标题行）
-    // V1.5.2: summary 可能被写成非字符串，直接 .split 会抛；kv.event 可能是对象，
-    // 直接放进 JSX 会触发 "Objects are not valid as a React child"
-    const summary = toText(event.summary);
-    const summaryLines = summary.split('\n');
-    const eventTitle = toText(kv.event) || summaryLines[0]?.replace(/:\s*$/, '') || '未知事件';
+    const summaryLines = event.summary.split('\n');
+    const eventTitle = kv.event || summaryLines[0]?.replace(/:\s*$/, '') || '未知事件';
     const summaryText = summaryLines.length > 1
         ? summaryLines.slice(1).join(' ').trim()
-        : summary;
+        : event.summary;
 
     // 紧凑模式（移动端）
     if (isCompact) {
@@ -159,8 +151,8 @@ export const EventCard: React.FC<EventCardProps> = ({
                         {event.is_embedded && (
                             <Zap size={10} className="text-label" />
                         )}
-                        <span className={`text-xs ${score >= 0.8 ? 'text-emphasis' : (score >= 0.5 ? 'text-value' : 'text-label')}`}>
-                            {score.toFixed(1)}
+                        <span className={`text-xs ${event.significance_score >= 0.8 ? 'text-emphasis' : (event.significance_score >= 0.5 ? 'text-value' : 'text-label')}`}>
+                            {event.significance_score.toFixed(1)}
                         </span>
                     </div>
                     <p className="text-sm text-foreground truncate mt-1">
@@ -301,7 +293,7 @@ export const EventCard: React.FC<EventCardProps> = ({
 
                 <div className="w-px h-3 bg-border mx-1 opacity-20" />
                 
-                <ScoreDots score={score} />
+                <ScoreDots score={event.significance_score} />
             </div>
 
             {/* 元数据行 */}
