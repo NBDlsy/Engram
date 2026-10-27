@@ -36,7 +36,6 @@ export class MacroService {
         if (this.isInitialized) {return;}
 
         try {
-            // @ts-expect-error - SillyTavern 全局对象
             const context = window.SillyTavern?.getContext?.();
 
             if (!context?.registerMacro && !context?.macros) {
@@ -140,7 +139,6 @@ export class MacroService {
 
 
             // 监听聊天切换事件，刷新缓存
-            // @ts-expect-error
             const {eventSource} = context;
             if (eventSource) {
                 eventSource.on('chat_id_changed', () => {
@@ -434,7 +432,6 @@ export class MacroService {
      */
     private static refreshCharDescription(): void {
         try {
-            // @ts-expect-error
             const context = window.SillyTavern?.getContext?.();
             if (context?.characters && context.characterId >= 0) {
                 const char = context.characters[context.characterId];
@@ -493,7 +490,6 @@ export class MacroService {
      */
     private static refreshCustomMacros(): void {
         try {
-            // @ts-expect-error
             const context = window.SillyTavern?.getContext?.();
             if (!context?.registerMacro) {
                 Logger.debug('MacroService', '酒馆 registerMacro 不可用，跳过自定义宏注册');
@@ -539,7 +535,6 @@ export class MacroService {
      * @param description 宏描述
      */
     private static registerMacro(name: string, handler: () => string, description: string) {
-        // @ts-expect-error
         const context = window.SillyTavern?.getContext?.();
 
         // 兼容性修复: 强制使用旧版 registerMacro API

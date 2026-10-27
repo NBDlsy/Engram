@@ -145,7 +145,8 @@ describe('WorkflowEngine Retry Mechanism', () => {
         // Now advance the rest of the time. The next retry attempt should detect cancellation before execution.
         await vi.advanceTimersByTimeAsync(3000);
         
-        await expect(promise).rejects.toThrow('429 Too Many Requests'); // Throw whatever is the last error, but crucially it should stop retrying.
+        // 对外统一返回取消状态，保留“不再执行下一次请求”的断言。
+        await expect(promise).rejects.toThrow('UserCancelled');
         expect(executeMock).toHaveBeenCalledTimes(1);
     });
 

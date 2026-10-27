@@ -83,7 +83,7 @@ const LogCard: React.FC<{
         countTokens();
     }, [sent, received, expanded]);
 
-    const typeConfig = TYPE_LABELS[sent.type];
+    const typeConfig = TYPE_LABELS[sent.type] ?? TYPE_LABELS.other;
 
     return (
         <div className="border border-border rounded-lg overflow-hidden bg-card">

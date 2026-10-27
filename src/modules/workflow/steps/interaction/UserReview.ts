@@ -160,7 +160,7 @@ export class UserReview implements IStep {
             Logger.info('UserReview', '用户确认修订');
             return { action: 'next' };
 
-        } catch {
+        } catch (e) {
             Logger.warn('UserReview', '用户取消操作');
             notificationService.info('已取消操作', '操作取消');
             throw new Error('UserCancelled', { cause: e });

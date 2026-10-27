@@ -67,6 +67,7 @@ vi.mock('@/modules/rag/retrieval/Reranker', () => ({
             { id: 'evt_2', score: 0.85 }
         ]),
         isEnabled: vi.fn().mockReturnValue(true),
+        getHybridAlpha: vi.fn().mockReturnValue(0.5),
         isReady: vi.fn().mockResolvedValue(true)
     }
 }));

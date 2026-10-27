@@ -14,9 +14,7 @@ export async function hideMessageRange(start: number, end: number): Promise<void
         const command = `/hide ${start}-${end}`;
         
         // 优先使用官方扩展支持的斜杠指令触发器（高兼容性）
-        // @ts-expect-error
         if (typeof window.TavernHelper?.triggerSlash === 'function') {
-            // @ts-expect-error
             window.TavernHelper.triggerSlash(command);
             Logger.debug(MODULE, `Slash command execution: ${command}`);
         } else {
@@ -77,7 +75,6 @@ export async function injectMessage(role: 'user' | 'char', content: string, name
             is_system: false,
             send_date: Date.now(),
             mes: content,
-            // @ts-expect-error
             force_avatar: role === 'char' ? scriptModule.characters[ctx.characterId]?.avatar : undefined
         };
 

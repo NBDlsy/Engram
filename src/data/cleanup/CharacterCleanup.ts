@@ -25,21 +25,18 @@ export class CharacterDeleteService {
 
             // 监听角色删除事件
             if (context.event_types.CHARACTER_DELETED) {
-                // @ts-expect-error
                 context.eventSource.on(context.event_types.CHARACTER_DELETED, this.onCharacterDeleted.bind(this));
                 Logger.debug(LogModule.DATA_CLEANUP, '监听 CHARACTER_DELETED 事件');
             }
 
             // 监听聊天删除事件
             if (context.event_types.CHAT_DELETED) {
-                // @ts-expect-error
                 context.eventSource.on(context.event_types.CHAT_DELETED, this.onChatDeleted.bind(this));
                 Logger.debug(LogModule.DATA_CLEANUP, '监听 CHAT_DELETED 事件');
             }
 
             // 监听群聊删除事件
             if (context.event_types.GROUP_CHAT_DELETED) {
-                // @ts-expect-error
                 context.eventSource.on(context.event_types.GROUP_CHAT_DELETED, this.onChatDeleted.bind(this));
                 Logger.debug(LogModule.DATA_CLEANUP, '监听 GROUP_CHAT_DELETED 事件');
             }

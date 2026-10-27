@@ -248,7 +248,6 @@ export class WorldbookScannerService {
             const DEFAULT_SCAN_LIMIT = 4;
             let messages = chatMessages;
 
-            // @ts-expect-error
             const context = window.SillyTavern?.getContext?.();
 
             if (options?.floorRange) {
@@ -296,7 +295,6 @@ export class WorldbookScannerService {
             });
 
             // 获取结果并过滤
-            // @ts-expect-error
             const allEntriesSet: Set<any> = result?.allActivatedEntries;
             const entries = allEntriesSet ? [...allEntriesSet.values()] : [];
 

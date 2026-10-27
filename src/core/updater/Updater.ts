@@ -159,7 +159,7 @@ export class UpdateService {
             if (found) {
                 // 处理可能包含 'third-party/' 前缀的情况
                 const parts = found.name.split(/[/\\]/);
-                cachedRealExtensionName = parts.at(-1);
+                cachedRealExtensionName = parts.at(-1) ?? null;
                 console.debug('[Engram] 自动识别扩展标识:', cachedRealExtensionName);
                 return cachedRealExtensionName;
             }

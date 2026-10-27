@@ -439,7 +439,6 @@ export function useMemoryStream(initialTab: ViewTab = 'list') {
         try {
             const Dexie = (await import('dexie')).default;
             const names = await Dexie.getDatabaseNames();
-            // @ts-expect-error
             const currentDbName = getCurrentDb()?.name || '';
             const engramDbs = names.filter(n => n.startsWith('Engram_') && n !== currentDbName);
             setAvailableDbs(engramDbs);

@@ -22,7 +22,7 @@ export class MemoryAdapter implements SearchAdapter {
             // Optimize: Scan from newest to oldest (timestamp) and stop after 5 matches
             const events = await db.events
                 .orderBy('timestamp')
-                .toReversed()
+                .reverse()
                 .filter(e => e.summary.toLowerCase().includes(lowerQuery))
                 .limit(5)
                 .toArray();

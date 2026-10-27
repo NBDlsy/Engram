@@ -35,7 +35,7 @@ export class SaveEvent implements IStep {
                 if (parsed && parsed.events) {
                     eventsToSave = parsed.events;
                 }
-            } catch {
+            } catch (e) {
                 throw new Error('SaveEvent: 无法解析 JSON 事件数据', { cause: e });
             }
         }

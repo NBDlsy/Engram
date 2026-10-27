@@ -9,7 +9,6 @@ const MODULE = 'Worldbook';
  */
 async function getTokenCountAsync(text: string): Promise<number> {
     try {
-        // @ts-expect-error - SillyTavern 全局对象
         const {SillyTavern} = window;
         if (SillyTavern?.getContext) {
             const context = SillyTavern.getContext() as any;
@@ -74,7 +73,6 @@ export class WorldbookMetricsService {
      */
     static async isNativeTokenCountAvailable(): Promise<boolean> {
         try {
-            // @ts-expect-error
             const {SillyTavern} = window;
             if (SillyTavern?.getContext) {
                 const context = SillyTavern.getContext();

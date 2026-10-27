@@ -22,7 +22,6 @@ export class PromptLoader {
 
         for (const path in promptFiles) {
             try {
-                // @ts-expect-error
                 const rawContent = promptFiles[path].default;
                 const parsed = loadYaml.load(rawContent) as Record<string, any>;
 

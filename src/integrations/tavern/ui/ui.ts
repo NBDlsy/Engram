@@ -174,7 +174,7 @@ export function mountGlobalOverlay(): void {
     }
 
     const overlayId = ENGRAM_GLOBAL_OVERLAY_ID;
-    let overlay = document.querySelector(`#${overlayId}`);
+    let overlay = document.querySelector<HTMLElement>(`#${overlayId}`);
 
     // 如果已存在但未挂载，则复用
     if (!overlay) {

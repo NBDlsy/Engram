@@ -17,16 +17,18 @@ export class FormatTrimInput implements IStep {
         }
 
         const formattedText = events.map(e => {
-            const kv = e.structured_kv;
+            const kv = e.structured_kv ?? (e as any).meta ?? {};
             // V1.0.2: location 现在是数组
-            const locStr = Array.isArray(kv.location) ? kv.location.join(', ') : kv.location;
-            return `${e.summary}
-Role: [${kv.role.join(', ')}]
+            const locStr = Array.isArray(kv.location) ? kv.location.join(', ') : (kv.location ?? '');
+            const roleStr = Array.isArray(kv.role) ? kv.role.join(', ') : (kv.role ?? '');
+            const logicStr = Array.isArray(kv.logic) ? kv.logic.join(', ') : (kv.logic ?? '');
+            return `${e.summary ?? ''}
+Role: [${roleStr}]
 Loc: [${locStr}]
-Event: ${kv.event}
-Logic: [${kv.logic.join(', ')}]
-Causality: ${kv.causality}
-Significance: ${e.significance_score}`;
+Event: ${kv.event ?? ''}
+Logic: [${logicStr}]
+Causality: ${kv.causality ?? ''}
+Significance: ${e.significance_score ?? 0}`;
         }).join('\n\n---\n\n');
 
         // 将格式化后的文本放入变量

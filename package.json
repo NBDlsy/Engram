@@ -1,6 +1,6 @@
 {
     "name": "engram",
-    "version": "1.5.3",
+    "version": "1.5.4",
     "description": "Graph RAG 记忆操作系统 for SillyTavern",
     "type": "module",
     "main": "src/index.tsx",
@@ -8,6 +8,8 @@
         "dev": "vite",
         "dev:watch": "vite build --watch",
         "build": "vite build",
+        "postbuild": "pnpm run check:release",
+        "check:release": "node scripts/check-release.mjs",
         "preview": "vite preview",
         "prettify": "prettier --write \"src/**/*.ts\" \"src/**/*.tsx\"",
         "test": "vitest run",

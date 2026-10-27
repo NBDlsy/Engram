@@ -18,7 +18,6 @@ export class FetchContext implements IStep {
             context.input.charPersona = charAny.personality || charAny.description || '';
 
         }
-        // @ts-expect-error
         const stContext = window.SillyTavern?.getContext?.();
         if (stContext) {
             context.input.userName = stContext.name1 || 'User';

@@ -76,7 +76,6 @@ export const ItemCard: React.FC<ItemCardProps> = ({
     compact = false,
 }) => {
     const visibleActions = actions.filter(a => !a.hidden);
-    const hasToggle = Boolean(toggle);
 
     return (
         <div
@@ -96,9 +95,9 @@ export const ItemCard: React.FC<ItemCardProps> = ({
             onClick={onClick}
         >
             {/* 左侧：图标或开关 */}
-            {(icon || hasToggle) && (
+            {(icon || toggle) && (
                 <div className="flex-shrink-0">
-                    {hasToggle ? (
+                    {toggle ? (
                         <button
                             className={`
                                 w-7 h-7 flex items-center justify-center rounded-md transition-colors

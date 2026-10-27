@@ -12,9 +12,7 @@ export class ChatHistoryHelper {
      */
     static getChatHistory(floorRange?: [number, number]): string {
         try {
-            // @ts-expect-error
             const context = window.SillyTavern?.getContext?.();
-            // @ts-expect-error
             const {TavernHelper} = window;
 
             if (context?.chat && Array.isArray(context.chat)) {
@@ -164,7 +162,6 @@ export class ChatHistoryHelper {
      */
     static getCurrentMessageCount(): number {
         try {
-            // @ts-expect-error
             const context = window.SillyTavern?.getContext?.();
             if (context?.chat && Array.isArray(context.chat)) {
                 return context.chat.length;

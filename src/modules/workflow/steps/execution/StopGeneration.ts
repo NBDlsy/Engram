@@ -21,7 +21,6 @@ export class StopGeneration implements IStep {
     static async abort(): Promise<void> {
         try {
             // 路径 1: 使用官方 Context 接口 (Engram 集成层)
-            // @ts-expect-error
             const stCtx = window.SillyTavern?.getContext?.();
             if (stCtx?.stopGeneration) {
                 stCtx.stopGeneration();
@@ -39,7 +38,7 @@ export class StopGeneration implements IStep {
             }
 
             // 路径 3: 暴力模拟 UI 点击 (最后的兜底，只要按钮在 DOM 中就有效)
-            const stopButton = document.querySelector('#mes_stop');
+            const stopButton = document.querySelector<HTMLElement>('#mes_stop');
             if (stopButton && stopButton.offsetParent !== null) { // 确保按钮可见/在文档中
                 stopButton.click();
                 Logger.info(LogModule.SYSTEM, '通过模拟点击 #mes_stop 按钮触发中断');

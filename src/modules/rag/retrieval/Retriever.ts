@@ -437,14 +437,14 @@ class Retriever {
         // 1. Get recent Level 0 (Details)
         const recentEvents = await db.events
             .filter(node => node.level === 0)
-            .toReversed()
+            .reverse()
             .limit(limit)
             .toArray();
 
         // 2. Get latest Level 1 (Macro Context)
         const latestMacro = await db.events
             .filter(node => node.level === 1)
-            .toReversed()
+            .reverse()
             .first();
 
         const nodes: EventNode[] = [...recentEvents];

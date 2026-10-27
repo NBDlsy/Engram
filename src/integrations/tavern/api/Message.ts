@@ -121,7 +121,7 @@ export class MessageService {
      */
     static getLastMessage(options: GetMessagesOptions = {}): TavernMessage | null {
         const messages = this.getAllMessages(options);
-        return messages.length > 0 ? messages.at(-1) : null;
+        return messages.at(-1) ?? null;
     }
 
     /**

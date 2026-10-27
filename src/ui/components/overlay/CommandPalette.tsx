@@ -12,7 +12,6 @@ import { PresetAdapter } from '@/modules/search/adapters/PresetAdapter';
 
 // Singleton registration (simple check)
 // @ts-expect-error
-// @ts-expect-error
 if (!window.__ENGRAM_SEARCH_INIT__) {
     searchService.registerAdapter(new CommandAdapter());
     searchService.registerAdapter(new SettingAdapter());

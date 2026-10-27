@@ -46,3 +46,11 @@ import 'fake-indexeddb/auto';
 };
 
 (global as any).$ = (global as any).window.$;
+
+// 服务会在延迟回调中注册 DOM 监听，Node 测试提供最小浏览器桩。
+(global as any).document = {
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    querySelector: vi.fn(() => null),
+    visibilityState: 'visible',
+};

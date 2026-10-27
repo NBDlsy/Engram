@@ -123,7 +123,6 @@ export class SettingsManager {
      * 获取 SillyTavern context
      */
     private static getContext(): any {
-        // @ts-expect-error
         return window.SillyTavern?.getContext?.();
     }
 
