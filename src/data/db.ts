@@ -5,7 +5,7 @@
  * Each chat_id gets its own isolated IndexedDB database.
  */
 
-import type { Table } from 'dexie';
+import type { Table, Transaction } from 'dexie';
 import Dexie from 'dexie';
 import type { EntityNode, EventNode } from './types/graph';
 
@@ -48,16 +48,21 @@ export class ChatDatabase extends Dexie {
             meta: 'key'
         });
 
-        // 注册数据变动监听钩子
-        const handleChange = () => this.updateLastModified();
+        // 同一事务只登记一次；回滚和导入都不能把旧数据标记为新版本上传。
+        const trackedTransactions = new WeakSet<Transaction>();
+        const handleChange = (transaction: Transaction) => {
+            if (syncService.isImportingChat(this.chatId) || trackedTransactions.has(transaction)) {return;}
+            trackedTransactions.add(transaction);
+            transaction.on('complete', () => this.updateLastModified());
+        };
 
-        this.events.hook('creating', handleChange);
-        this.entities.hook('updating', handleChange);
-        this.events.hook('deleting', handleChange);
+        this.events.hook('creating', (_key, _object, transaction) => handleChange(transaction));
+        this.events.hook('updating', (_changes, _key, _object, transaction) => handleChange(transaction));
+        this.events.hook('deleting', (_key, _object, transaction) => handleChange(transaction));
 
-        this.entities.hook('creating', handleChange);
-        this.entities.hook('updating', handleChange);
-        this.entities.hook('deleting', handleChange);
+        this.entities.hook('creating', (_key, _object, transaction) => handleChange(transaction));
+        this.entities.hook('updating', (_changes, _key, _object, transaction) => handleChange(transaction));
+        this.entities.hook('deleting', (_key, _object, transaction) => handleChange(transaction));
     }
 
     private lastUpdateTimer: any = null;
@@ -69,7 +74,7 @@ export class ChatDatabase extends Dexie {
      */
     private updateLastModified() {
         // 检查导入锁 - 如果正在导入，完全跳过
-        if (syncService.isImportingState) {
+        if (syncService.isImportingChat(this.chatId)) {
             return;
         }
 
@@ -80,7 +85,7 @@ export class ChatDatabase extends Dexie {
             this.lastUpdateTimer = null;
             
             // 再次检查导入状态（防止在延时期间状态变化）
-            if (syncService.isImportingState) {
+            if (syncService.isImportingChat(this.chatId)) {
                 return;
             }
 
@@ -119,7 +124,7 @@ export async function exportChatData(db: ChatDatabase): Promise<ChatDataDump> {
     
     // V1.4.6 Optimization: 将 meta 放在最前面，这样 JSON.stringify 出来的字符串中，
     // 元数据会出现在文件头部。这让 SyncService 的流式正则解析能瞬间命中并切断连接，节省 99% 的带宽喵！
-    return { entities, events, meta };
+    return { meta: { ...meta, chatId: db.name.slice('Engram_'.length) }, entities, events };
 }
 
 /**

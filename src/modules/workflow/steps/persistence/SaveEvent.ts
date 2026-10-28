@@ -1,9 +1,10 @@
 import { Logger } from '@/core/logger';
 import type { EventNode } from '@/data/types/graph';
-import { MacroService, hideMessageRange } from '@/integrations/tavern';
+import { MacroService, getCurrentChatId, hideMessageRange } from '@/integrations/tavern';
 import { useMemoryStore } from '@/state/memoryStore';
 import { notificationService } from '@/ui/services/NotificationService';
 import type { JobContext } from '../../core/JobContext';
+import { WorkflowEngine } from '../../core/WorkflowEngine';
 import type { IStep } from '../../core/Step';
 
 // Replaces Pipeline.ts logic
@@ -11,8 +12,8 @@ export class SaveEvent implements IStep {
     name = 'SaveEvent';
 
     async execute(context: JobContext): Promise<void> {
-
-
+        context.chatId ??= getCurrentChatId();
+        WorkflowEngine.assertActive(context);
         const content = context.output || context.cleanedContent;
         if (!content) {
             throw new Error('SaveEvent: 无内容可保存');
@@ -20,6 +21,7 @@ export class SaveEvent implements IStep {
 
         const store = useMemoryStore.getState();
         const db = await store.initChat();
+        WorkflowEngine.assertActive(context);
         if (!db) {throw new Error('No chat context');}
 
 
@@ -44,7 +46,7 @@ export class SaveEvent implements IStep {
             throw new Error('SaveEvent: 无有效事件');
         }
 
-        const savedEvents: EventNode[] = [];
+        const preparedEvents: Omit<EventNode, 'id' | 'timestamp'>[] = [];
         const range = context.input.range || [0, 0];
 
         // 3. 保存逻辑 (Burn & Save)
@@ -84,7 +86,7 @@ export class SaveEvent implements IStep {
             const rawSummary = evt.summary || `[Summary Missing] ${kv.event || '无摘要'}`;
             const burnedSummary = `${titleLine}${metaLine}${rawSummary}`;
 
-            const saved = await store.saveEvent({
+            preparedEvents.push({
                 is_archived: false,
                 is_embedded: false,
                 level: 0,
@@ -103,22 +105,19 @@ export class SaveEvent implements IStep {
                 },
                 summary: burnedSummary
             });
-            savedEvents.push(saved);
         }
-
-        context.output = savedEvents;
-
-        // 4. 后置操作
-        // 如果是外部导入，则不影响主线聊天记录的游标更新
         const isImport = context.input?.isImport === true;
-
-        // Update last summarized floor (State)
-        if (range[1] > 0 && !isImport) {
-            await store.setLastSummarizedFloor(range[1]);
-        }
+        const savedEvents = await store.saveEvents(preparedEvents, {
+            chatId: context.chatId ?? undefined,
+            lastSummarizedFloor: range[1] > 0 && !isImport ? range[1] : undefined,
+            assertActive: () => WorkflowEngine.assertActive(context),
+        });
+        context.output = savedEvents;
+        WorkflowEngine.assertActive(context);
 
         // Refresh Macro Cache
         await MacroService.refreshEngramCache();
+        WorkflowEngine.assertActive(context);
 
         // 5. Auto Hide (Optional) - Should this be a separate step?
         // 放在这里方便，或者放在 Workflow 的最后
@@ -133,7 +132,7 @@ export class SaveEvent implements IStep {
                 savedEventCount: savedEvents.length,
                 workflowRange: range,
             });
-            hideMessageRange(startIndex, endIndex).catch(error => {
+            hideMessageRange(startIndex, endIndex, context.chatId ?? undefined).catch(error => {
                 Logger.error('SaveEvent', '自动隐藏失败', error);
             });
         }

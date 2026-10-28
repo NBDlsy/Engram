@@ -6,6 +6,7 @@ import { embeddingService } from '@/modules/rag';
 import { useMemoryStore } from '@/state/memoryStore';
 import { notificationService } from '@/ui/services/NotificationService';
 import type { JobContext } from '../../core/JobContext';
+import { WorkflowEngine } from '../../core/WorkflowEngine';
 import type { IStep } from '../../core/Step';
 import { normalizeTrimResponse } from './trimNormalizer';
 
@@ -41,6 +42,7 @@ export class ApplyTrim implements IStep {
     name = 'ApplyTrim';
 
     async execute(context: JobContext): Promise<void> {
+        WorkflowEngine.assertActive(context);
         if (context.data?.skipTrimming) {
             return;
         }
@@ -118,6 +120,7 @@ export class ApplyTrim implements IStep {
             summary: normalized.summary,
             timestamp: Math.min(...eventsToMerge.map(e => e.timestamp)) - 1
         });
+        WorkflowEngine.assertActive(context);
 
         // 2. 联动嵌入 (Trim Linkage)
         const sourceEventIds = eventsToMerge.map(e => e.id);
@@ -134,6 +137,7 @@ export class ApplyTrim implements IStep {
                 }
 
                 await embeddingService.embedEvents(eventsToMerge);
+                WorkflowEngine.assertActive(context);
                 await store.markEventsAsEmbedded(sourceEventIds);
             } catch (embedError) {
                 Logger.error('ApplyTrim', '联动嵌入失败', { error: embedError });
@@ -142,7 +146,9 @@ export class ApplyTrim implements IStep {
         }
 
         // 3. 归档原始事件
+        WorkflowEngine.assertActive(context);
         await store.archiveEvents(sourceEventIds);
+        WorkflowEngine.assertActive(context);
 
         // 4. 刷新缓存
         await MacroService.refreshCache();

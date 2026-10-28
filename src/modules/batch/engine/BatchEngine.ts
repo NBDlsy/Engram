@@ -1,5 +1,6 @@
 import type { BatchProgressCallback, BatchQueue, IBatchTaskHandler } from '../types';
 import { Logger } from '@/core/logger';
+import { getCurrentChatId } from '@/integrations/tavern/core/context';
 /**
  * 核心调度引擎
  * 负责管理任务队列，并发锁，控制起停以及 UI 进度节流更新。
@@ -15,6 +16,7 @@ export class BatchEngine {
 
     private listeners = new Set<BatchProgressCallback>();
     private stopSignal = false;
+    private activeChatId: string | null = null;
     private lastNotifyTime = 0;
     // 节流时间阈值 (ms)
     private readonly THROTTLE_MS = 100;
@@ -125,7 +127,8 @@ export class BatchEngine {
     /**
      * 提供一个检测停止信号的方法闭包，供上层任务切片使用
      */
-    private checkStopSignal = (): boolean => this.stopSignal;
+    private checkStopSignal = (): boolean => this.stopSignal ||
+        (this.activeChatId !== null && getCurrentChatId() !== this.activeChatId);
 
     /**
      * 将预装配的 Task 投入执行列队
@@ -139,6 +142,7 @@ export class BatchEngine {
 
         // 立即锁定执行
         this.queue.isRunning = true;
+        this.activeChatId = getCurrentChatId();
         this.stopSignal = false;
         this.queue.isPaused = false;
         this.pausePromise = null;
@@ -152,7 +156,7 @@ export class BatchEngine {
             const tasks = await handler.estimate();
 
             // P0 Fix: 中断死锁保护。如果在 estimate 期间触发了 stop，直接放弃队列覆盖
-            if (this.stopSignal) {
+            if (this.checkStopSignal()) {
                 Logger.info('BatchEngine', '收到中止信号，正在放弃估计出的新任务');
                 return;
             }
@@ -185,7 +189,7 @@ export class BatchEngine {
                     await this.pausePromise;
                 }
 
-                if (this.stopSignal) {
+                if (this.checkStopSignal()) {
                     console.info('[BatchEngine] 收到中止信号，正在结束迭代');
                     break;
                 }

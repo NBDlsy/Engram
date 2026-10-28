@@ -95,7 +95,8 @@ export const createCoreSlice: StateCreator<any, [], [], CoreState> = (set, get) 
 
         if (chatId !== get().currentChatId) {
             console.debug(`[MemoryStore] Switching to chat: ${chatId}`);
-            const state = await chatManager.getState();
+            const state = await chatManager.getState(chatId);
+            if (getCurrentChatId() !== chatId) {return null;}
             set({
                 currentChatId: chatId,
                 currentScope: { id: 1 },
@@ -129,8 +130,10 @@ export const createCoreSlice: StateCreator<any, [], [], CoreState> = (set, get) 
     },
 
     setLastSummarizedFloor: async (floor) => {
-        await chatManager.updateState({ last_summarized_floor: floor });
-        set({ lastSummarizedFloor: floor });
+        const chatId = getCurrentChatId();
+        if (!chatId) {return;}
+        await chatManager.updateState({ last_summarized_floor: floor }, chatId);
+        if (getCurrentChatId() === chatId) {set({ lastSummarizedFloor: floor });}
     },
 
     setProcessing: (isProcessing) => set({ isProcessing })

@@ -1,5 +1,6 @@
 import { LogModule, Logger } from '@/core/logger';
 import { generateShortUUID, sleep } from '@/core/utils';
+import { getCurrentChatId } from '@/integrations/tavern/core/context';
 import type { JobContext } from './JobContext';
 import type { IStep, StepResult } from './Step';
 
@@ -14,6 +15,21 @@ export interface WorkflowDefinition {
  * 负责顺序执行 Steps，管理 Context，处理错误。
  */
 export class WorkflowEngine {
+    /** 在异步边界及提交前检查，取消不能被当作正常完成。 */
+    static assertActive(context: Pick<JobContext, 'chatId' | 'signal'>): void {
+        if (context.signal?.cancelled ||
+            (context.chatId != null && context.chatId !== getCurrentChatId())) {
+            const error = new Error('UserCancelled');
+            Object.assign(error, { isCancellation: true });
+            throw error;
+        }
+    }
+
+    private static isCancellation(error: unknown): boolean {
+        return error instanceof Error &&
+            (error.message === 'UserCancelled' || (error as Error & { isCancellation?: boolean }).isCancellation === true);
+    }
+
     /**
      * 执行带有重试机制的步骤
      */
@@ -21,6 +37,7 @@ export class WorkflowEngine {
         step: IStep,
         context: JobContext
     ): Promise<StepResult> {
+        this.assertActive(context);
         const retryConfig = step.getRetry?.(context) ?? step.retry;
         
         // 如果没有配置重试，或者设定 maxAttempts <= 1，直接执行
@@ -36,7 +53,8 @@ export class WorkflowEngine {
                 return await step.execute(context);
             } catch (error) {
                 // 取消检查点：如果已被取消，则不进行重试
-                if (context.signal && context.signal.cancelled) {
+                this.assertActive(context);
+                if (this.isCancellation(error)) {
                     throw error;
                 }
 
@@ -55,9 +73,7 @@ export class WorkflowEngine {
                 await sleep(delay);
 
                 // 取消检查点：如果等待期间被取消，则终止重试并抛出上次的错误
-                if (context.signal && context.signal.cancelled) {
-                    throw error;
-                }
+                this.assertActive(context);
 
                 // 计算下一次退避延迟
                 if (retryConfig.backoff === 'exponential') {
@@ -81,6 +97,7 @@ export class WorkflowEngine {
 
         // 1. 初始化完整 Context
         const context: JobContext = {
+            chatId: initialContext.chatId === undefined ? getCurrentChatId() : initialContext.chatId,
             config: initialContext.config || {},
             id: initialContext.id || generateShortUUID('wf_'),
             input: initialContext.input || {},
@@ -112,10 +129,7 @@ export class WorkflowEngine {
             // 2. 顺序执行 Steps (支持跳转)
             for (let i = 0; i < workflow.steps.length; i++) {
                 // 取消检查点：每个 Step 执行前检查信号
-                if (context.signal && context.signal.cancelled) {
-                    Logger.warn(LogModule.RAG_INJECT, '工作流被中途取消', { jobId: context.id });
-                    break;
-                }
+                this.assertActive(context);
 
                 const step = workflow.steps[i];
                 currentStepName = step.name;
@@ -126,6 +140,7 @@ export class WorkflowEngine {
                 const stepStart = Date.now();
                 try {
                     const result = await this.executeWithRetry(step, context);
+                    this.assertActive(context);
                     const duration = Date.now() - stepStart;
 
                     context.metadata.stepsExecuted.push(step.name);
@@ -163,7 +178,7 @@ export class WorkflowEngine {
                         }
                     }
                 } catch (stepError) {
-                    if (step.ignoreFailure) {
+                    if (step.ignoreFailure && !this.isCancellation(stepError) && !context.signal?.cancelled) {
                         Logger.warn(LogModule.RAG_INJECT, `步骤执行彻底失败，但配置了忽略错误，继续流转: ${step.name}`, {
                             error: stepError instanceof Error ? stepError.message : String(stepError)
                         });
@@ -185,7 +200,7 @@ export class WorkflowEngine {
             });
 
         } catch (error: any) {
-            const isCancelled = context.signal && context.signal.cancelled;
+            const isCancelled = context.signal?.cancelled || this.isCancellation(error);
             context.metadata.error = error instanceof Error ? error : new Error(String(error));
             
             if (isCancelled) {

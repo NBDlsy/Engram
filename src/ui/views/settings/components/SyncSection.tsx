@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useConfigStore } from "@/state/configStore";
 import { Switch } from "@/ui/components/core/Switch";
-import { getCurrentChatId } from "@/integrations/tavern";
 import { LogModule, Logger } from "@/core/logger";
 
 export const SyncSection: React.FC = () => {
@@ -9,7 +8,6 @@ export const SyncSection: React.FC = () => {
     const [syncStatus, setSyncStatus] = useState<'idle' | 'check' | 'syncing' | 'success' | 'error'>('idle');
     const [syncMessage, setSyncMessage] = useState<string>('');
     const [lastSyncTime, setLastSyncTime] = useState<number>(0);
-    const chatId = getCurrentChatId();
 
     const handleConfigChange = (key: keyof typeof syncConfig) => (checked: boolean) => {
         updateConfig('syncConfig', { ...syncConfig, [key]: checked } as any);
@@ -61,6 +59,11 @@ export const SyncSection: React.FC = () => {
                     setSyncMessage('服务端无数据');
                     break;
                 }
+                case 'legacy_unverified': {
+                    setSyncStatus('idle');
+                    setSyncMessage('旧备份缺少聊天标识，请点击强制下载核对后恢复');
+                    break;
+                }
                 case 'error':
                 default: {
                     setSyncStatus('error');
@@ -69,7 +72,7 @@ export const SyncSection: React.FC = () => {
                 }
             }
 
-            if (result !== 'error') {
+            if (result !== 'error' && result !== 'legacy_unverified') {
                 setTimeout(() => {
                     setSyncStatus('idle');
                     setSyncMessage('');
@@ -147,7 +150,7 @@ export const SyncSection: React.FC = () => {
                     </div>
 
                     <ul className="mt-2 text-xs text-muted-foreground/60 p-2 bg-background/50 rounded list-disc list-inside">
-                        <li>数据存储路径: `data/default-user/files/Engram_sync_{chatId ?? '未知'}.json`</li>
+                        <li>同步数据保存在酒馆用户文件目录，每个聊天使用独立文件</li>
                         <li>跨设备同步需手动点击"上传"或开启自动同步</li>
                         <li>请定期备份重要数据</li>
                     </ul>
@@ -195,7 +198,15 @@ export const SyncSection: React.FC = () => {
                             if (!chatId) {throw new Error('未连接到聊天');}
 
                             const { syncService } = await import('@/data/sync/SyncService');
-                            const result = await syncService.download(chatId);
+                            const result = await syncService.download(chatId, preview => window.confirm(
+                                `发现旧版备份，但无法确认它属于当前聊天。\n\n文件：${preview.fileName}\n事件：${preview.eventCount}，实体：${preview.entityCount}\n内容预览：\n${preview.summaryPreview || '（无事件摘要）'}\n\n确认这是「${chatId}」的备份并覆盖本地记忆吗？`
+                            ));
+
+                            if (result === 'cancelled') {
+                                setSyncStatus('idle');
+                                setSyncMessage('已取消恢复');
+                                return;
+                            }
 
                             if (result === 'success') {
                                 setSyncStatus('success');

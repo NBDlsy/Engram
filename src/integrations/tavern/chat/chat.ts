@@ -9,8 +9,9 @@ const MODULE = 'TavernChat';
  * @param start 起始楼层
  * @param end 结束楼层
  */
-export async function hideMessageRange(start: number, end: number): Promise<void> {
+export async function hideMessageRange(start: number, end: number, chatId = getSTContext()?.chatId): Promise<void> {
     try {
+        if (!chatId || getSTContext()?.chatId !== chatId) {return;}
         const command = `/hide ${start}-${end}`;
         
         // 优先使用官方扩展支持的斜杠指令触发器（高兼容性）
@@ -22,6 +23,7 @@ export async function hideMessageRange(start: number, end: number): Promise<void
             Logger.warn(MODULE, 'TavernHelper.triggerSlash is unavailable. Executing fallback hiding.');
             const importPath = '/scripts/chats.js';
             const chatsModule = await import(/* @vite-ignore */ importPath);
+            if (getSTContext()?.chatId !== chatId) {return;}
             if (chatsModule && typeof chatsModule.hideChatMessageRange === 'function') {
                 await chatsModule.hideChatMessageRange(start, end, false);
             }
@@ -30,8 +32,10 @@ export async function hideMessageRange(start: number, end: number): Promise<void
         // 统一在执行隐藏后尝试强制保存聊天状态，避免刷新后隐藏失效（SillyTavern 的常见坑）
         setTimeout(async () => {
             try {
+                if (getSTContext()?.chatId !== chatId) {return;}
                 const scriptPath = '/script.js';
                 const scriptModule = await import(/* @vite-ignore */ scriptPath);
+                if (getSTContext()?.chatId !== chatId) {return;}
                 if (scriptModule && typeof scriptModule.saveChat === 'function') {
                     await scriptModule.saveChat();
                     Logger.debug(MODULE, `Chat explicitly saved after hiding range: ${start}-${end}`);

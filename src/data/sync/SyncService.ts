@@ -1,23 +1,35 @@
 import { LogModule, Logger } from '@/core/logger';
 import { getRequestHeaders, getSTContext } from '@/integrations/tavern';
 import type { ChatDataDump} from '@/data/db';
-import { ChatDatabase, getDbForChat, exportChatData, importChatData } from '@/data/db';
+import { getDbForChat, exportChatData, importChatData } from '@/data/db';
 import { debounce } from 'lodash';
 import { SettingsManager } from '@/config/settings';
 import { notificationService } from '@/ui/services/NotificationService';
+import { getSyncFileName, getLegacySyncFileName, needsLegacyConfirmation, readSyncMetadata } from './SyncFile';
 
 const MODULE = LogModule.DATA_SYNC;
 const DEBOUNCE_DELAY = 3000;
-const SYNC_FILE_PREFIX = 'Engram_sync_';
-const SYNC_FILE_EXT = '.json';
+
+export interface LegacySyncPreview {
+    fileName: string;
+    eventCount: number;
+    entityCount: number;
+    summaryPreview: string;
+}
+
+type ConfirmLegacySync = (preview: LegacySyncPreview) => boolean | Promise<boolean>;
 
 class SyncService {
     private static instance: SyncService;
     private debouncedUploads = new Map<string, () => void>();
-    private isImporting: boolean = false; // 导入锁，防止导入时触发上传
+    private importingChats = new Map<string, number>();
 
     public get isImportingState(): boolean {
-        return this.isImporting;
+        return this.importingChats.size > 0;
+    }
+
+    public isImportingChat(chatId: string): boolean {
+        return this.importingChats.has(chatId);
     }
 
     private constructor() {
@@ -72,16 +84,6 @@ class SyncService {
     }
 
     /**
-     * 生成同步文件名
-     * 格式: Engram_sync_{chatId}.json
-     */
-    private getSyncFileName(chatId: string): string {
-        // 简单清理 chatId，虽然通常已经是安全的
-        const safeChatId = chatId.replaceAll(/[^a-zA-Z0-9_-]/g, '_');
-        return `${SYNC_FILE_PREFIX}${safeChatId}${SYNC_FILE_EXT}`;
-    }
-
-    /**
      * 获取同步文件的完整 URL (用于 fetch)
      */
     private getSyncFileUrl(fileName: string): string {
@@ -90,12 +92,27 @@ class SyncService {
         return `/user/files/${fileName}?t=${Date.now()}`;
     }
 
+    /** 仅在新文件不存在时回退旧名称；请求错误不得伪装成旧数据。 */
+    private async fetchRemoteFile(chatId: string) {
+        const candidates = [getSyncFileName(chatId), getLegacySyncFileName(chatId)];
+        for (const [index, fileName] of candidates.entries()) {
+            const response = await fetch(this.getSyncFileUrl(fileName));
+            if (response.status === 404) {
+                await response.body?.cancel();
+                continue;
+            }
+            if (!response.ok) {throw new Error(`同步读取失败: HTTP ${response.status}`);}
+            return { response, fileName, legacy: index === 1 };
+        }
+        return null;
+    }
+
     /**
      * 调度自动上传（防抖）
      */
     public scheduleUpload(chatId: string) {
         // 检查导入锁
-        if (this.isImporting) {
+        if (this.isImportingChat(chatId)) {
             Logger.debug(MODULE, `Skipping upload schedule for ${chatId} (Importing)`);
             return;
         }
@@ -158,7 +175,7 @@ class SyncService {
                 notificationService.warning(`记忆库较大 (${sizeInMB.toFixed(2)} MB), 同步可能需要更长时间喵~`, 'Sync');
             }
 
-            const fileName = this.getSyncFileName(chatId);
+            const fileName = getSyncFileName(chatId);
 
             // P0 Fix: 异步转码方案，防止大文件阻塞主线程
             // 使用 Blob + FileReader 转码为数据 URL，它能流式处理并释放 CPU 压力
@@ -213,14 +230,22 @@ class SyncService {
      */
     public async purge(chatId: string): Promise<void> {
         try {
-            const fileName = this.getSyncFileName(chatId);
-            await fetch('/api/files/delete', {
-                body: JSON.stringify({
-                    path: fileName // files API 直接接收文件名作为 path (当不需要子目录时)
-                }),
+            const deleteFile = (fileName: string) => fetch('/api/files/delete', {
+                body: JSON.stringify({ path: fileName }),
                 headers: getRequestHeaders(),
                 method: 'POST'
             });
+            await deleteFile(getSyncFileName(chatId));
+
+            // 旧名称可能被多个聊天共用；只有归属可验证时才能联动删除。
+            const legacyName = getLegacySyncFileName(chatId);
+            const response = await fetch(this.getSyncFileUrl(legacyName));
+            if (response.ok) {
+                const meta = await readSyncMetadata(response);
+                if (!needsLegacyConfirmation(chatId, meta, true)) {
+                    await deleteFile(legacyName);
+                }
+            }
         } catch {
             // Ignore purge errors
         }
@@ -230,61 +255,16 @@ class SyncService {
      * 检查远程状态
      * 尝试下载文件头或整个文件来检查是否存在和更新时间
      */
-    public async getRemoteStatus(chatId: string): Promise<{ exists: boolean, timestamp: number }> {
+    public async getRemoteStatus(chatId: string): Promise<{ exists: boolean, timestamp: number, requiresConfirmation?: boolean }> {
         try {
-            const fileName = this.getSyncFileName(chatId);
-            const url = this.getSyncFileUrl(fileName);
-
-            // 使用 fetch HEAD 请求先检查文件是否存在 (酒馆可能不支持 HEAD，直接 GET)
-            // 由于我们需要 meta 信息，且通常文件不会极大，直接 GET
-            const response = await fetch(url);
-
-            if (!response.ok) {return { exists: false, timestamp: 0 };}
-
-            // P1 Fix: 放弃直接 response.json() 把整个几 MB 甚至几十 MB 吃进内存
-            // 改为流式读取 Buffer 首部，提取 meta.lastModified 后即刻 abort
-            const reader = response.body?.getReader();
-            if (!reader) {
-                // 如果环境不支持流式读取（极少），回退为常规读取
-                const dump = await response.json() as ChatDataDump;
-                return {
-                    exists: true,
-                    timestamp: (dump.meta?.lastModified as number) || 0,
-                };
-            }
-
-            const decoder = new TextDecoder('utf-8');
-            let chunkStr = '';
-            
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) {break;}
-                
-                chunkStr += decoder.decode(value, { stream: true });
-                
-                // 尝试用正则匹配 `"lastModified": 123456789`
-                const match = chunkStr.match(/"lastModified"\s*:\s*(\d+)/);
-                if (match) {
-                    // 取到值后，强制立刻切断后方冗长的数据流下载，拯救内存与带宽喵！
-                    reader.cancel();
-                    return {
-                        exists: true,
-                        timestamp: Number.parseInt(match[1], 10)
-                    };
-                }
-                
-                // 为了防止极端情况下 meta 不在最前面，但也不会找太久
-                // 仅扫描前 100KB (粗略判断)，如果在 100KB 内没找到也 abort 以保安全
-                if (chunkStr.length > 102_400) {
-                    reader.cancel();
-                    break;
-                }
-            }
-
-            return { exists: false, timestamp: 0 };
-
-        } catch {
-            // 404 等错误也会进这里
+            const remote = await this.fetchRemoteFile(chatId);
+            if (!remote) {return { exists: false, timestamp: 0 };}
+            const meta = await readSyncMetadata(remote.response);
+            const requiresConfirmation = needsLegacyConfirmation(chatId, meta, remote.legacy);
+            const timestamp = Number(meta.lastModified) || 0;
+            return { exists: true, timestamp, ...(requiresConfirmation ? { requiresConfirmation: true } : {}) };
+        } catch (error) {
+            Logger.warn(MODULE, `无法读取 ${chatId} 的同步状态`, error);
             return { exists: false, timestamp: 0 };
         }
     }
@@ -292,32 +272,45 @@ class SyncService {
     /**
      * 下载并导入数据
      */
-    public async download(chatId: string): Promise<string> {
+    public async download(chatId: string, confirmLegacy?: ConfirmLegacySync): Promise<string> {
         try {
             Logger.info(MODULE, `Downloading for ${chatId}...`);
-            this.isImporting = true; // 加锁
+            const remote = await this.fetchRemoteFile(chatId);
+            if (!remote) {return 'no_data';}
+            const dump = await remote.response.json() as ChatDataDump;
 
-            const fileName = this.getSyncFileName(chatId);
-            const url = this.getSyncFileUrl(fileName);
-            const response = await fetch(url);
-
-            if (!response.ok) {
-                Logger.warn(MODULE, `No remote data found for ${chatId} (HTTP ${response.status})`);
-                this.isImporting = false;
-                return 'no_data';
+            if (!Array.isArray(dump.events) || !Array.isArray(dump.entities)) {
+                throw new Error('Invalid file format: missing events or entities');
+            }
+            const meta = dump.meta || {};
+            if (needsLegacyConfirmation(chatId, meta, remote.legacy)) {
+                if (!confirmLegacy) {return 'legacy_unverified';}
+                const confirmed = await confirmLegacy({
+                    fileName: remote.fileName,
+                    eventCount: dump.events.length,
+                    entityCount: dump.entities.length,
+                    summaryPreview: dump.events.slice(0, 2).map(event => String(event.summary || '').slice(0, 150)).join('\n'),
+                });
+                if (!confirmed) {return 'cancelled';}
             }
 
-            const dump = await response.json() as ChatDataDump;
-
-            if (!dump.events || !dump.entities) {
-                this.isImporting = false;
-                throw new Error('Invalid file format: missing events or entities');
+            // 恢复旧数据时补充归属，保留原时间戳及其他元数据。
+            dump.meta = { ...meta, chatId };
+            if (meta.scope_state) {
+                dump.meta.scope_state = { ...meta.scope_state, chatId };
             }
 
             Logger.debug(MODULE, `接收数据: ${dump.events?.length} 事件, ${dump.entities?.length} 实体`);
 
             const db = await getDbForChat(chatId);
-            await importChatData(db, dump);
+            this.importingChats.set(chatId, (this.importingChats.get(chatId) || 0) + 1);
+            try {
+                await importChatData(db, dump);
+            } finally {
+                const remaining = (this.importingChats.get(chatId) || 1) - 1;
+                if (remaining > 0) {this.importingChats.set(chatId, remaining);}
+                else {this.importingChats.delete(chatId);}
+            }
 
             // ImportChatData 应该包含了从服务端来的 meta（其中包含 lastModified）
             // 因此不需要手动 patch 时间戳，数据库状态应当完全与远程一致
@@ -328,15 +321,13 @@ class SyncService {
             const entityCount = await db.entities.count();
             Logger.debug(MODULE, `导入验证: ${eventCount} 事件, ${entityCount} 实体`);
 
+            // 迁移到不会碰撞的新名称，旧备份保留以便人工核对。
+            if (remote.legacy) {await this.upload(chatId);}
+
             return 'success';
         } catch (error) {
             Logger.error(MODULE, `Download failed for ${chatId}`, error);
             return 'error';
-        } finally {
-            // 延迟释放锁，等待可能的 DB 钩子处理完毕
-            setTimeout(() => {
-                this.isImporting = false;
-            }, 1000);
         }
     }
 
@@ -349,7 +340,7 @@ class SyncService {
         if (!config?.enabled || !config?.autoSync) {return;}
 
         const remoteStatus = await this.getRemoteStatus(chatId);
-        if (!remoteStatus.exists) {return;}
+        if (!remoteStatus.exists || remoteStatus.requiresConfirmation) {return;}
 
         // 检查本地时间
         // 检查本地时间 (lastModified)
@@ -380,6 +371,7 @@ class SyncService {
         if (!remoteStatus.exists) {
             return 'ignored';
         }
+        if (remoteStatus.requiresConfirmation) {return 'legacy_unverified';}
 
         // 2. 检查本地时间
         const db = await getDbForChat(chatId);

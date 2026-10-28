@@ -91,14 +91,16 @@ setQuickPanelCallback(() => {
 
 // 等待 DOM 加载完成后初始化
 const initEngramOnLoad = () => {
-    initializeEngram();
+    void initializeEngram().catch(error => {
+        console.error('[Engram] 初始化失败', error);
+    });
     document.removeEventListener('DOMContentLoaded', initEngramOnLoad);
 };
 
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initEngramOnLoad);
 } else {
-    initializeEngram();
+    initEngramOnLoad();
 }
 
 // Engram initialization handled in STBridge

@@ -14,7 +14,7 @@ import { eventWatcher } from '@/core/events/EventWatcher';
 import { LogModule, Logger } from '@/core/logger';
 import { chatManager } from '@/data/ChatManager';
 import type { EntityNode } from '@/data/types/graph';
-import { MacroService } from '@/integrations/tavern';
+import { getCurrentChatId, MacroService } from '@/integrations/tavern';
 import { useMemoryStore } from '@/state/memoryStore';
 import { notificationService } from '@/ui/services/NotificationService';
 
@@ -208,6 +208,7 @@ export class EntityBuilder {
         }
 
         this.isExtracting = true;
+        const chatId = getCurrentChatId();
         const startTime = Date.now();
         Logger.info(LogModule.MEMORY_ENTITY, `开始实体提取 (Workflow) (楼层 ${floor}, DryRun: ${dryRun})`);
 
@@ -238,6 +239,7 @@ export class EntityBuilder {
             }
 
             const contextPromise = WorkflowEngine.run(createEntityWorkflow(), {
+                chatId,
                 config: {
                     dryRun,
                     previewEnabled,
@@ -254,13 +256,14 @@ export class EntityBuilder {
             });
 
             const context = await contextPromise;
+            WorkflowEngine.assertActive(context);
             if (runningToast) {notificationService.remove(runningToast);}
 
             const result = context.output; // From SaveEntity
 
             if (!dryRun) {
                 const finalFloor = (range?.[1] ?? floor);
-                await chatManager.updateState({ last_extracted_floor: finalFloor });
+                await chatManager.updateState({ last_extracted_floor: finalFloor }, chatId ?? undefined);
 
                 Logger.success(LogModule.MEMORY_ENTITY, '实体提取完成', {
                     duration: Date.now() - startTime,
@@ -279,6 +282,7 @@ export class EntityBuilder {
                 // P0 Bugfix: Workflow 路径保存后触发自动归档检查（与 saveRawEntities 对齐）
                 if (this.config.autoArchive ?? true) {
                     await new Promise(r => setTimeout(r, 0));
+                    WorkflowEngine.assertActive(context);
                     await this.checkAndArchiveEntities();
                 }
             } else {

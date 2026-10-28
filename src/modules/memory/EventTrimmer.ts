@@ -9,6 +9,7 @@ import { DEFAULT_TRIM_CONFIG } from '@/config/types/defaults';
 import type { TrimConfig } from '@/config/types/memory';
 import { LogModule, Logger } from '@/core/logger';
 import type { EventNode } from '@/data/types/graph';
+import { getCurrentChatId } from '@/integrations/tavern';
 import { useMemoryStore } from '@/state/memoryStore';
 import { notificationService } from '@/ui/services/NotificationService';
 
@@ -108,6 +109,7 @@ class EventTrimmer {
         }
 
         this.isTrimming = true;
+        const chatId = getCurrentChatId();
 
         try {
             // Lazy import
@@ -116,6 +118,7 @@ class EventTrimmer {
 
             const config = this.getEffectiveConfig();
             const context = await WorkflowEngine.run(createTrimmerWorkflow(), {
+                chatId,
                 config: {
                     keepRecentCount: config.keepRecentCount,
                     previewEnabled: (SettingsManager.get('globalPreviewEnabled') ?? true) && (config.previewEnabled ?? true),

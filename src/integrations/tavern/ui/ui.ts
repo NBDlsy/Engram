@@ -9,8 +9,20 @@ import { Logger } from '@/core/logger';
 
 const MODULE = 'QuickPanelButton';
 
-/** 按钮注入状态 */
-let isInjected = false;
+/** 宿主界面可能延迟加载或重绘，统一监听两个入口的挂载点。 */
+let hostUIObserver: MutationObserver | null = null;
+let topBarEnabled = false;
+let quickPanelEnabled = false;
+
+function observeHostUI(): void {
+    if (hostUIObserver || !document.body) {return;}
+
+    hostUIObserver = new MutationObserver(() => {
+        if (topBarEnabled) {createTopBarButton();}
+        if (quickPanelEnabled) {injectQuickPanelButton();}
+    });
+    hostUIObserver.observe(document.body, { childList: true, subtree: true });
+}
 
 /** 全局回调：打开快捷面板 */
 let onOpenQuickPanel: (() => void) | null = null;
@@ -39,8 +51,7 @@ export function setQuickPanelCallback(callback: () => void) {
  * 直接 append 到 #leftSendForm（会出现在 extensionsMenuButton 之后）
  */
 function injectQuickPanelButton(): boolean {
-    if (isInjected) {
-        Logger.debug(MODULE, '按钮已存在，跳过注入');
+    if (document.getElementById(DOM_IDS.QUICK_PANEL_TRIGGER)) {
         return true;
     }
 
@@ -77,8 +88,6 @@ function injectQuickPanelButton(): boolean {
     // 直接 append 到 leftSendForm
     leftSendForm.append(button);
 
-    isInjected = true;
-
     Logger.info(MODULE, '按钮注入成功 (#leftSendForm)');
     return true;
 }
@@ -91,7 +100,6 @@ function removeQuickPanelButton(): void {
     if (button) {
         button.removeEventListener('click', handleQuickPanelClick as EventListener);
         button.remove();
-        isInjected = false;
         Logger.debug(MODULE, '按钮已移除');
     }
 }
@@ -100,44 +108,9 @@ function removeQuickPanelButton(): void {
  * 初始化：等待 DOM 就绪后注入
  */
 export function initQuickPanelButton(): void {
-    // 尝试立即注入
-    if (injectQuickPanelButton()) {
-        return;
-    }
-
-    // 重试计数
-    let retryCount = 0;
-    const maxRetries = 20;
-    const retryInterval = 500;
-
-    const retryInjection = () => {
-        retryCount++;
-        if (injectQuickPanelButton()) {
-            return;
-        }
-        if (retryCount < maxRetries) {
-            setTimeout(retryInjection, retryInterval);
-        } else {
-            Logger.warn(MODULE, '注入超时，已达到最大重试次数');
-        }
-    };
-
-    // 使用 MutationObserver 监听 DOM 变化，对抗酒馆的不定向重绘
-    const observer = new MutationObserver(() => {
-        const leftSendForm = document.querySelector(DOM_IDS.LEFT_SEND_FORM);
-        if (leftSendForm && !document.getElementById(DOM_IDS.QUICK_PANEL_TRIGGER)) {
-            isInjected = false; // 重置允许注入
-            injectQuickPanelButton();
-        }
-    });
-
-    observer.observe(document.body, {
-        childList: true,
-        subtree: true,
-    });
-
-    // 同时启动定时重试
-    setTimeout(retryInjection, retryInterval);
+    quickPanelEnabled = true;
+    observeHostUI();
+    injectQuickPanelButton();
 }
 
 // ==================== 以下为从 bridge.ts 拆分过来的 UI 管理部分 ====================
@@ -194,10 +167,19 @@ export function mountGlobalOverlay(): void {
  * 创建顶栏按钮入口（模仿 ST 的 drawer 结构）
  */
 export function createTopBarButton(): void {
+    topBarEnabled = true;
+    observeHostUI();
+
     const holder = document.querySelector(DOM_IDS.TOP_SETTINGS_HOLDER);
     const wiButton = document.querySelector(DOM_IDS.WI_SP_BUTTON);
 
     if (!holder) {
+        return;
+    }
+
+    const existingDrawer = document.getElementById(ENGRAM_DRAWER_ID);
+    if (existingDrawer) {
+        if (existingDrawer.parentElement !== holder) {holder.append(existingDrawer);}
         return;
     }
 
@@ -218,7 +200,7 @@ export function createTopBarButton(): void {
     toggle.append(icon);
     drawer.append(toggle);
 
-    if (wiButton) {
+    if (wiButton?.parentElement === holder) {
         holder.insertBefore(drawer, wiButton);
     } else {
         holder.append(drawer);

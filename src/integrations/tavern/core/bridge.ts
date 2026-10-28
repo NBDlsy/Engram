@@ -22,6 +22,12 @@ export async function initializeEngram(): Promise<void> {
 
     Logger.info('STBridge', 'Engram 插件正在初始化...');
 
+    // 入口先于世界书等异步服务注册，避免请求挂起时整个界面不可访问。
+    const { createTopBarButton, initQuickPanelButton, mountGlobalOverlay } = await import('../ui/ui');
+    createTopBarButton();
+    initQuickPanelButton();
+    mountGlobalOverlay();
+
     // 初始化设置管理器
     const { SettingsManager } = await import('@/config/settings');
     SettingsManager.initSettings();
@@ -63,12 +69,6 @@ export async function initializeEngram(): Promise<void> {
         Logger.warn('EntityBuilder', 'Service start failed', { error: String(error) });
     }
 
-    // 从 ui 提取加载顶部按钮指令
-    const { createTopBarButton } = await import('@/integrations/tavern');
-    // 优先使用顶栏按钮，找不到则使用悬浮球
-    createTopBarButton();
-
-
     // 初始化主题系统 (注入 CSS 并应用变量)
     const { ThemeManager } = await import('@/ui/services/ThemeManager');
     ThemeManager.init();
@@ -92,19 +92,6 @@ export async function initializeEngram(): Promise<void> {
     } catch (error) {
         Logger.warn('MacroService', '宏服务/世界书初始化失败', { error: String(error) });
     }
-
-    // V0.8: Initialize QR 栏快捷按钮
-    try {
-        const { initQuickPanelButton } = await import('@/integrations/tavern');
-        initQuickPanelButton();
-        Logger.info('QuickPanelButton', 'QR 栏按钮初始化完成');
-    } catch (error) {
-        Logger.warn('QuickPanelButton', 'QR 栏按钮初始化失败', { error: String(error) });
-    }
-
-    // 挂载全局悬浮层 (用于修订弹窗等)
-    const { mountGlobalOverlay } = await import('@/integrations/tavern');
-    mountGlobalOverlay();
 
     // 初始化角色删除联动服务
     try {

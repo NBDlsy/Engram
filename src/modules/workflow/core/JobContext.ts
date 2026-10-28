@@ -7,6 +7,9 @@ export interface JobContext {
     /** 任务 ID */
     id: string;
 
+    /** 发起任务时的聊天；异步步骤不得转而操作其他聊天。 */
+    chatId?: string | null;
+
     /** 触发方式 */
     trigger: 'auto' | 'manual' | 'batch';
 

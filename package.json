@@ -1,6 +1,6 @@
 {
     "name": "engram",
-    "version": "1.5.4",
+    "version": "1.5.5",
     "description": "Graph RAG 记忆操作系统 for SillyTavern",
     "type": "module",
     "main": "src/index.tsx",
@@ -13,6 +13,7 @@
         "preview": "vite preview",
         "prettify": "prettier --write \"src/**/*.ts\" \"src/**/*.tsx\"",
         "test": "vitest run",
+        "test:browser": "node scripts/check-browser.mjs",
         "test:watch": "vitest",
         "test:coverage": "vitest run --coverage",
         "type-check": "tsc --noEmit",
@@ -56,6 +57,7 @@
         "vitest": "^4.0.0"
     },
     "dependencies": {
+        "@noble/hashes": "^1.8.0",
         "clsx": "^2.1.1",
         "dexie": "^4.0.11",
         "fast-json-patch": "^3.1.1",

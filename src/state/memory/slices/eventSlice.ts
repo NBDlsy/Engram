@@ -1,12 +1,21 @@
 import { generateShortUUID } from '@/core/utils';
+import { chatManager } from '@/data/ChatManager';
+import { getDbForChat } from '@/data/db';
 import type { EventNode } from '@/data/types/graph';
-import { WorldInfoService } from '@/integrations/tavern';
+import { getCurrentChatId, WorldInfoService } from '@/integrations/tavern';
 import type { StateCreator } from 'zustand';
 import { getCurrentDb, tryGetCurrentDb } from './coreSlice';
 
+export interface SaveEventsOptions {
+    chatId?: string;
+    lastSummarizedFloor?: number;
+    /** 可选的提交校验；抛错时撤销整个批次及进度。 */
+    assertActive?: () => void;
+}
+
 export interface EventState {
     saveEvent: (event: Omit<EventNode, 'id' | 'timestamp'> & { timestamp?: number }) => Promise<EventNode>;
-    saveEvents: (events: (Omit<EventNode, 'id' | 'timestamp'> & { timestamp?: number })[]) => Promise<EventNode[]>;
+    saveEvents: (events: (Omit<EventNode, 'id' | 'timestamp'> & { timestamp?: number })[], options?: SaveEventsOptions) => Promise<EventNode[]>;
     importDatabase: (sourceDbName: string) => Promise<{ events: number, entities: number }>;
     getEventSummaries: (recalledIds?: string[]) => Promise<string>;
     countEventTokens: () => Promise<{ totalTokens: number; eventCount: number; activeEventCount: number }>;
@@ -48,9 +57,10 @@ export const createEventSlice: StateCreator<any, [], [], EventState> = (set, get
         return event;
     },
 
-    saveEvents: async (eventsData) => {
-        const db = getCurrentDb();
-        if (!db) {throw new Error('[MemoryStore] No current chat');}
+    saveEvents: async (eventsData, options = {}) => {
+        const chatId = options.chatId ?? getCurrentChatId();
+        if (!chatId) {throw new Error('[MemoryStore] No current chat');}
+        const db = getDbForChat(chatId);
         if (eventsData.length === 0) {return [];}
 
         const events: EventNode[] = eventsData.map(data => ({
@@ -61,11 +71,23 @@ export const createEventSlice: StateCreator<any, [], [], EventState> = (set, get
             timestamp: data.timestamp ?? Date.now(),
         }));
 
-        await db.events.bulkAdd(events);
+        // 总结事件与对应楼层必须同时提交，失败或取消时一起回滚。
+        const tables = options.lastSummarizedFloor !== undefined ? [db.events, db.meta] : [db.events];
+        await db.transaction('rw', tables, async () => {
+            options.assertActive?.();
+            await db.events.bulkAdd(events);
+            if (options.lastSummarizedFloor !== undefined) {
+                await chatManager.updateState({ last_summarized_floor: options.lastSummarizedFloor }, chatId);
+            }
+            options.assertActive?.();
+        });
 
-        set((state: any) => ({
-            recentEvents: [...state.recentEvents, ...events].slice(-10)
-        }));
+        if (getCurrentChatId() === chatId) {
+            set((state: any) => ({
+                recentEvents: [...state.recentEvents, ...events].slice(-10),
+                ...(options.lastSummarizedFloor !== undefined ? { lastSummarizedFloor: options.lastSummarizedFloor } : {}),
+            }));
+        }
 
         return events;
     },

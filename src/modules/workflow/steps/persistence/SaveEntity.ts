@@ -7,6 +7,7 @@ import * as jsonpatch from 'fast-json-patch';
 import * as yaml from 'js-yaml';
 import { z } from 'zod';
 import type { JobContext } from '../../core/JobContext';
+import { WorkflowEngine } from '../../core/WorkflowEngine';
 import type { IStep } from '../../core/Step';
 
 // V1.3: 统一 JSON Patch 格式
@@ -57,8 +58,22 @@ export class SaveEntity implements IStep {
     }
 
     async execute(context: JobContext): Promise<void> {
-        const store = useMemoryStore.getState();
+        WorkflowEngine.assertActive(context);
+        const currentStore = useMemoryStore.getState();
+        // 多条实体会跨越多个 await，每次实际写入前重新确认聊天归属。
+        const store: typeof currentStore = {
+            ...currentStore,
+            saveEntity: entity => {
+                WorkflowEngine.assertActive(context);
+                return currentStore.saveEntity(entity);
+            },
+            updateEntity: (id, updates) => {
+                WorkflowEngine.assertActive(context);
+                return currentStore.updateEntity(id, updates);
+            },
+        };
         const existingEntities = (context.input._rawExistingEntities as EntityNode[]) || await store.getAllEntities();
+        WorkflowEngine.assertActive(context);
 
         let sourceContent = context.parsedData;
 

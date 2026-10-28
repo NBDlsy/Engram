@@ -117,13 +117,12 @@ class SummarizerService {
      * V0.8: 修复时序问题，直接从 chatManager.getState() 读取确保获取最新值
      */
     private async getLastSummarizedFloor(): Promise<number> {
-        // 如果缓存有值且不是刚被清零，直接返回
-        if (this._lastSummarizedFloor > 0) {return this._lastSummarizedFloor;}
-
-        // 直接从 IndexedDB 读取，避免 memoryStore 缓存未初始化的问题
+        // 同步恢复、提交后取消都可能改变 DB 游标，异步读取始终以持久化状态为准。
+        const chatId = this.getCurrentChatId();
         try {
             const { chatManager } = await import('@/data/ChatManager');
-            const state = await chatManager.getState();
+            const state = await chatManager.getState(chatId ?? undefined);
+            if (this.getCurrentChatId() !== chatId) {return 0;}
             this._lastSummarizedFloor = state.last_summarized_floor;
             this.log('debug', '从 DB 读取 lastSummarizedFloor', { value: this._lastSummarizedFloor });
             return this._lastSummarizedFloor;
@@ -352,6 +351,7 @@ class SummarizerService {
         }
 
         const currentFloor = this.getCurrentFloor();
+        const chatId = this.getCurrentChatId();
 
         this.isSummarizing = true;
         this.cancelRequested = false; // 重置取消标志
@@ -368,6 +368,11 @@ class SummarizerService {
         });
 
         try {
+            const { WorkflowEngine } = await import('@/modules/workflow/core/WorkflowEngine');
+            WorkflowEngine.assertActive({ chatId, signal: cancelSignal });
+            await this.getLastSummarizedFloor();
+            WorkflowEngine.assertActive({ chatId, signal: cancelSignal });
+
             // 1. Calculate Range
             let startFloor: number;
             let endFloor: number;
@@ -420,7 +425,6 @@ class SummarizerService {
             });
 
             // 2. Run Workflow
-            const { WorkflowEngine } = await import('@/modules/workflow/core/WorkflowEngine');
             const { createSummaryWorkflow } = await import('@/modules/workflow/definitions/SummaryWorkflow');
             const { WorldBookSlotService } = await import('@/integrations/tavern/worldbook');
             await WorldBookSlotService.init();
@@ -429,6 +433,7 @@ class SummarizerService {
             const previewEnabled = globalPreviewEnabled && (this.config.previewEnabled ?? true);
 
             const context = await WorkflowEngine.run(createSummaryWorkflow(), {
+                chatId,
                 config: {
                     autoHide: this.config.autoHide,
                     logType: 'summarize',
@@ -444,6 +449,12 @@ class SummarizerService {
 
             // 3. Construct Result (Backward Compatibility)
             const savedEvents = context.output; // From SaveEvent (Array of EventNodes)
+            WorkflowEngine.assertActive(context);
+            // 提前结束或未执行持久化的工作流不能推进总结进度。
+            if (!Array.isArray(savedEvents) || savedEvents.length === 0 ||
+                !context.metadata.stepsExecuted.includes('SaveEvent')) {
+                return null;
+            }
 
             // If SaveEvent returns array of events, we construct a SummaryResult-like object
             // Or just return the list. Original method returned SummaryResult (single object).
@@ -475,6 +486,7 @@ class SummarizerService {
                 const trimStatus = await eventTrimmer.getStatus();
                 const trimConfig = eventTrimmer.getConfig();
                 const trimAvailability = await eventTrimmer.canTrim();
+                WorkflowEngine.assertActive(context);
 
                 this.log('debug', '自动精简触发检查', {
                     canTrim: trimAvailability.canTrim,

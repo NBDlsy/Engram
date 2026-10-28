@@ -57,8 +57,8 @@ class ChatManager {
     /**
      * 获取当前聊天的状态
      */
-    async getState(): Promise<ScopeState> {
-        const db = this.getCurrentDb();
+    async getState(chatId?: string): Promise<ScopeState> {
+        const db = chatId ? getDbForChat(chatId) : this.getCurrentDb();
         if (!db) {return DEFAULT_SCOPE_STATE;}
 
         try {
@@ -76,16 +76,23 @@ class ChatManager {
     /**
      * 更新当前聊天的状态
      */
-    async updateState(partialState: Partial<ScopeState>): Promise<void> {
-        const db = this.getCurrentDb();
+    async updateState(partialState: Partial<ScopeState>, chatId?: string): Promise<void> {
+        const db = chatId ? getDbForChat(chatId) : this.getCurrentDb();
         if (!db) {return;}
 
         try {
-            const currentState = await this.getState();
-            const newState = { ...currentState, ...partialState };
+            // 使用同一个数据库读取和写入，避免 await 期间聊天切换。
+            const meta = await db.meta.get(STATE_KEY);
+            const newState = {
+                ...DEFAULT_SCOPE_STATE,
+                ...(meta?.value as Partial<ScopeState> | undefined),
+                ...partialState,
+                chatId: db.name.slice('Engram_'.length),
+            };
             await db.meta.put({ key: STATE_KEY, value: newState });
         } catch (error) {
             Logger.error(MODULE, '更新状态失败:', error);
+            throw error;
         }
     }
 
